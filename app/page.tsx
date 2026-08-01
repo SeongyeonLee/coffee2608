@@ -818,7 +818,7 @@ function RecordForm({ bean, recipes, onClose, onLogged }) {
               <div style={{ border: T.hairline, padding: "18px", background: T.card }}>
                 <div style={{ ...label(8), marginBottom: "14px" }}>✓ {recipe.name}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px 16px" }}>
-                  {[["Grinder", recipe.grinder], ["Clicks", recipe.clicks], ["Temp", recipe.waterTemp], ["Dripper", recipe.dripper], ["Filter", recipe.filter], ["Total", recipe.totalTime]].filter(([, v]) => v).map(([l, v]) => (
+                  {[["Dose", recipe.dose && `${String(recipe.dose).replace(/g$/, "")}g`], ["Grinder", recipe.grinder], ["Clicks", recipe.clicks], ["Temp", recipe.waterTemp], ["Dripper", recipe.dripper], ["Filter", recipe.filter], ["Total", recipe.totalTime]].filter(([, v]) => v).map(([l, v]) => (
                     <div key={l}>
                       <div style={{ ...label(7), marginBottom: "3px" }}>{l}</div>
                       <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px", color: T.ink }}>{v}</div>
@@ -1274,7 +1274,7 @@ function RecipeView({ recipes, beans, onSave }) {
                       <button onClick={() => setEditing(r)} style={{ background: "none", border: T.hairline, padding: "6px 12px", cursor: "pointer", ...MONO, fontSize: "8px", color: T.sub }}>Edit</button>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px 14px", marginBottom: r.pours.length ? "14px" : 0 }}>
-                      {[["Grinder", r.grinder], ["Clicks", r.clicks], ["Temp", r.waterTemp], ["Dripper", r.dripper], ["Filter", r.filter], ["Total", r.totalTime]].filter(([, v]) => v).map(([l, v]) => (
+                      {[["Dose", r.dose && `${String(r.dose).replace(/g$/, "")}g`], ["Grinder", r.grinder], ["Clicks", r.clicks], ["Temp", r.waterTemp], ["Dripper", r.dripper], ["Filter", r.filter], ["Total", r.totalTime]].filter(([, v]) => v).map(([l, v]) => (
                         <div key={l}>
                           <div style={{ ...label(7), marginBottom: "2px" }}>{l}</div>
                           <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: T.ink }}>{v}</div>

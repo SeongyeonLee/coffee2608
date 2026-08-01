@@ -1038,24 +1038,26 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
         style={{ position: "fixed", inset: 0, zIndex: 100, background: T.paper }}
       />
 
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        transition={{ duration: 0.25, delay: 0.05 }}
-        style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", flexDirection: "column" }}
-      >
+      <div style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", flexDirection: "column" }}>
         {/* Header rail */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px", borderBottom: T.hairline, flexShrink: 0 }}>
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.18 }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px", borderBottom: T.hairline, flexShrink: 0 }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
             <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: T.ink }} />
             <span style={label(8)}>Archive / {String(index ?? 0).padStart(3, "0")}</span>
           </div>
           <button onClick={onClose} style={{ width: "34px", height: "34px", background: "transparent", border: T.hairline, color: T.sub, cursor: "pointer", fontSize: "15px" }}>×</button>
-        </div>
+        </motion.div>
 
         {/* Three-column body */}
         <div style={{ flex: 1, display: "grid", gridTemplateColumns: "minmax(200px, 1fr) minmax(320px, 1.5fr) minmax(280px, 1.1fr)", minHeight: 0 }}>
           {/* Left — origin headline + collection meta */}
-          <div style={{ padding: "36px 28px", borderRight: T.hairline, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+          <motion.div
+            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: 0.2 }}
+            style={{ padding: "36px 28px", borderRight: T.hairline, display: "flex", flexDirection: "column", overflowY: "auto" }}
+          >
             <div style={{ ...label(8), marginBottom: "10px" }}>Origin</div>
             <MixedWord
               text={isBlend ? "Blend" : bean.origin}
@@ -1082,7 +1084,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" }}>{bean.remaining}%</span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Center — the artwork, nothing else */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "36px", position: "relative", overflow: "hidden" }}>
@@ -1090,10 +1092,11 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
               layoutId={`bean-card-${bean.id}`}
               transition={{ type: "spring", stiffness: 220, damping: 30 }}
               style={{
-                position: "relative", height: "100%", width: "100%",
-                maxHeight: "100%", aspectRatio: "3/4", margin: "0 auto",
+                position: "relative", height: "100%", width: "auto",
+                aspectRatio: "3/4", margin: "0 auto",
                 backgroundImage: art.uri, backgroundSize: "cover", backgroundPosition: "center",
                 boxShadow: "0 28px 70px rgba(20,18,15,0.18)", overflow: "hidden",
+                willChange: "transform", backfaceVisibility: "hidden",
               }}
             >
               <div style={{ position: "absolute", inset: 0, backgroundImage: GRAIN, backgroundSize: "140px", opacity: 0.14, mixBlendMode: "multiply" }} />
@@ -1101,7 +1104,10 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
           </div>
 
           {/* Right — technical profile + actions */}
-          <div style={{ borderLeft: T.hairline, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <motion.div
+            initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: 0.2 }}
+            style={{ borderLeft: T.hairline, display: "flex", flexDirection: "column", minHeight: 0 }}
+          >
             <div style={{ flex: 1, overflowY: "auto", padding: "36px 28px" }}>
               <div style={{ ...label(8), marginBottom: "18px" }}>Technical Profile</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px", marginBottom: "26px" }}>
@@ -1177,15 +1183,10 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
                 )}
               </AnimatePresence>
             </div>
-          </div>
+          </motion.div>
         </div>
 
-        {/* Footer rail */}
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 28px", borderTop: T.hairline, flexShrink: 0 }}>
-          <span style={{ ...MONO, fontSize: "7px", color: T.faint }}>{isBlend ? "Blend" : bean.origin}</span>
-          <span style={{ ...MONO, fontSize: "7px", color: T.faint }}>Roast Level: {bean.roastPoint || "—"}</span>
-        </div>
-      </motion.div>
+      </div>
 
       <AnimatePresence>
         {showRecord && (
@@ -1233,6 +1234,7 @@ function BeanCard({ bean, index, onClick }) {
         border: hovered ? "1px solid rgba(20,18,15,0.4)" : T.hairline,
         boxShadow: hovered ? "0 14px 36px rgba(20,18,15,0.14)" : "0 2px 10px rgba(20,18,15,0.05)",
         transition: "border-color 0.2s, box-shadow 0.25s",
+        willChange: "transform", backfaceVisibility: "hidden",
       }}
     >
       {/* Film grain */}
@@ -1249,8 +1251,8 @@ function BeanCard({ bean, index, onClick }) {
         <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: faint }}>D+{dday}</span>
       </div>
 
-      {/* Text block */}
-      <div style={{ position: "absolute", left: "18px", right: "18px", bottom: "34px" }}>
+      {/* Text block — fades out during the expand so it never stretches */}
+      <motion.div layout="position" style={{ position: "absolute", left: "18px", right: "18px", bottom: "34px" }}>
         <div style={{ marginBottom: "8px" }}>
           <MixedWord
             text={hero}
@@ -1273,10 +1275,10 @@ function BeanCard({ bean, index, onClick }) {
         )}
         {bean.tastingNotes.length > 0 && (
           <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: faint, marginTop: "8px", lineHeight: 1.6 }}>
-            {bean.tastingNotes.slice(0, 4).join(" / ")}
+            {bean.tastingNotes.slice(0, 4).join(" · ")}
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Remaining line */}
       <div style={{ position: "absolute", left: "18px", right: "18px", bottom: "14px", display: "flex", alignItems: "center", gap: "10px" }}>

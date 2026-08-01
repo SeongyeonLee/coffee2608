@@ -434,7 +434,7 @@ function FormField({ label: text, value, onChange, placeholder, type = "text" })
   )
 }
 
-function Stars({ value, onChange, size = 22, readOnly = false }) {
+function Stars({ value, onChange = undefined, size = 22, readOnly = false }) {
   return (
     <div style={{ display: "flex", gap: "6px" }}>
       {[1, 2, 3, 4, 5].map(n => (

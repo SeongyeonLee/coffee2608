@@ -201,7 +201,7 @@ function getRoastDDay(roastDate) {
   const today = new Date()
   roast.setHours(0, 0, 0, 0)
   today.setHours(0, 0, 0, 0)
-  return Math.max(0, Math.floor((today - roast) / (1000 * 60 * 60 * 24)))
+  return Math.max(0, Math.floor((today.getTime() - roast.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
 function RoastDateValue({ roastDate }) {

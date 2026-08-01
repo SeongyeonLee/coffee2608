@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import type { CSSProperties } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 
 // ─── GOOGLE SHEETS API ────────────────────────────────────────────────────────
@@ -228,7 +229,11 @@ const SCA_FLAVOR_WHEEL = [
   { category: "Sour / Fermented", notes: ["Winey", "Whiskey", "Fermented", "Citric Acid", "Malic Acid"] },
 ]
 
-const FORM = {
+const FORM: {
+  label: CSSProperties
+  input: CSSProperties
+  textarea: CSSProperties
+} = {
   label: { fontFamily: "monospace", fontSize: "8px", letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", display: "block", marginBottom: "6px" },
   input: { width: "100%", height: "40px", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.1)", padding: 0, fontFamily: "monospace", fontSize: "12px", color: "#fff", outline: "none", boxSizing: "border-box", borderRadius: 0 },
   textarea: { width: "100%", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.1)", padding: "10px 0", fontFamily: "Georgia, serif", fontSize: "13px", lineHeight: 1.75, color: "#fff", outline: "none", resize: "none", boxSizing: "border-box", borderRadius: 0 },
@@ -706,7 +711,7 @@ function RecordForm({ bean, onClose }) {
     return () => window.removeEventListener("keydown", h)
   }, [])
 
-  const S = {
+  const S: { input: CSSProperties; label: CSSProperties } = {
     input: { width: "100%", height: "40px", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.1)", padding: "0 0 0 0", fontFamily: "monospace", fontSize: "12px", color: "#fff", outline: "none", boxSizing: "border-box", borderRadius: 0 },
     label: { fontFamily: "monospace", fontSize: "8px", letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", display: "block", marginBottom: "6px" },
   }
@@ -933,7 +938,7 @@ function BeanDetailModal({ bean, onClose, onArchive }) {
 
 function CardFrontText({ bean, featured }) {
   const isBlend = bean.beanType === "blend"
-  const pos = { position: "absolute", left: featured ? "22px" : "16px", bottom: featured ? "44px" : "36px", zIndex: 3, right: featured ? "22px" : "16px" }
+  const pos: CSSProperties = { position: "absolute", left: featured ? "22px" : "16px", bottom: featured ? "44px" : "36px", zIndex: 3, right: featured ? "22px" : "16px" }
   const serif = (opacity, size, weight = 300) => ({
     fontFamily: "Georgia, serif",
     fontSize: `${size}px`,
@@ -1221,7 +1226,7 @@ function TopNav({ active, archiveTab, onChange, onArchiveTab }) {
     return () => document.removeEventListener("mousedown", h)
   }, [])
 
-  const navBtn = id => ({
+  const navBtn = (id): CSSProperties => ({
     fontFamily: "monospace", fontSize: "9px", letterSpacing: "0.2em", textTransform: "uppercase",
     color: active === id ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.28)",
     cursor: "pointer", background: "none", border: "none", padding: "0 2px", transition: "color 0.2s",

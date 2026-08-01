@@ -1186,7 +1186,8 @@ function RecipeForm({ initial, beans, onCancel, onSave }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
+          <FormField label="Dose (g)" value={r.dose} onChange={v => set("dose", v)} placeholder="e.g. 15" />
           <FormField label="Grinder" value={r.grinder} onChange={v => set("grinder", v)} placeholder="e.g. C40" />
           <FormField label="Clicks" value={r.clicks} onChange={v => set("clicks", v)} placeholder="e.g. 24" />
           <FormField label="Water Temp" value={r.waterTemp} onChange={v => set("waterTemp", v)} placeholder="e.g. 93°C" />

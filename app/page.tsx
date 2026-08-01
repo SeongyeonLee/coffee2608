@@ -39,6 +39,7 @@ function beanToSheetRow(bean) {
     roasterMachine: bean.roasterMachine || "",
     roastPoint: bean.roastPoint || "",
     roastDate: bean.roastDate || "",
+    bagSize: bean.bagSize || 200,
     remaining: bean.remaining ?? 100,
     tastingNotes: (bean.tastingNotes || []).join(", "),
     memo: bean.memo || "",
@@ -94,6 +95,7 @@ function sheetRowToBean(row) {
     blendName: blend ? (row.blendName || row.name) : undefined,
     components: blend ? components : undefined,
     roastDate: row.roastDate || new Date().toISOString().split("T")[0],
+    bagSize: Number(row.bagSize || 200),
     remaining: Number(row.remaining ?? 100),
     tastingNotes: notes,
     memo: row.memo || "",
@@ -111,6 +113,7 @@ function sheetRowToRecipe(row) {
     id: row.id,
     name: row.name || "Untitled recipe",
     beanId: row.beanId || "",
+    dose: row.dose || "",
     grinder: row.grinder || "",
     clicks: row.clicks || "",
     waterTemp: row.waterTemp || "",
@@ -155,6 +158,7 @@ async function postUpsertRecipe(recipe) {
       id: recipe.id,
       name: recipe.name,
       beanId: recipe.beanId || "",
+      dose: recipe.dose || "",
       grinder: recipe.grinder || "",
       clicks: recipe.clicks || "",
       waterTemp: recipe.waterTemp || "",
@@ -167,7 +171,24 @@ async function postUpsertRecipe(recipe) {
   })
 }
 
-async function postBrewLog({ bean, recipe, feedback }) {
+/** Patch arbitrary fields on an existing bean row (edits + remaining). */
+async function postUpdateBean(bean, fields) {
+  return postToSheet("updateBean", {
+    id: bean.id,
+    beanType: bean.beanType,
+    fields,
+  })
+}
+
+async function fetchBrewLogs() {
+  const res = await fetch(`${SHEET_API_URL}?action=brewlogs`, { method: "GET", redirect: "follow" })
+  if (!res.ok) throw new Error(`Sheet API HTTP ${res.status}`)
+  const json = await res.json()
+  if (!json.ok) throw new Error(json.error || "Sheet API returned an error")
+  return (json.data?.logs || []).slice().reverse()
+}
+
+async function postBrewLog({ bean, recipe, feedback, dose }) {
   return postToSheet("addBrewLog", {
     row: {
       id: `log${Date.now()}`,
@@ -179,6 +200,7 @@ async function postBrewLog({ bean, recipe, feedback }) {
       process: bean.process || "",
       recipeId: recipe?.id || "",
       recipeName: recipe?.name || "",
+      dose: dose || "",
       grinder: recipe?.grinder || "",
       clicks: recipe?.clicks || "",
       waterTemp: recipe?.waterTemp || "",
@@ -535,21 +557,27 @@ function NotePicker({ selected, onToggle }) {
 
 // ─── ADD BEAN MODAL ───────────────────────────────────────────────────────────
 
-function AddBeanModal({ onClose, onSave }) {
-  const [beanType, setBeanType] = useState("single")
-  const [country, setCountry] = useState("")
-  const [regionFarm, setRegionFarm] = useState("")
-  const [variety, setVariety] = useState("")
-  const [process, setProcess] = useState("")
-  const [altitude, setAltitude] = useState("")
-  const [roastery, setRoastery] = useState("")
-  const [roasterMachine, setRoasterMachine] = useState("")
-  const [roastPoint, setRoastPoint] = useState("")
-  const [roastDate, setRoastDate] = useState("")
-  const [blendName, setBlendName] = useState("")
-  const [components, setComponents] = useState([{ id: "1", country: "", variety: "", process: "", ratio: "" }])
-  const [description, setDescription] = useState("")
-  const [tastingNotes, setTastingNotes] = useState([])
+function AddBeanModal({ onClose, onSave, existing = null }) {
+  const isEdit = !!existing
+  const [beanType, setBeanType] = useState(existing?.beanType || "single")
+  const [country, setCountry] = useState(existing?.origin && existing.origin !== "Blend" ? existing.origin : "")
+  const [regionFarm, setRegionFarm] = useState(existing?.farm || "")
+  const [variety, setVariety] = useState(existing?.variety && existing.variety !== "Blend" ? existing.variety : "")
+  const [process, setProcess] = useState(existing?.process && existing.process !== "Blend" ? existing.process : "")
+  const [altitude, setAltitude] = useState(existing?.altitude || "")
+  const [roastery, setRoastery] = useState(existing?.roaster || "")
+  const [roasterMachine, setRoasterMachine] = useState(existing?.roasterMachine || "")
+  const [roastPoint, setRoastPoint] = useState(existing?.roastPoint || "")
+  const [roastDate, setRoastDate] = useState(existing?.roastDate || "")
+  const [bagSize, setBagSize] = useState(String(existing?.bagSize || 200))
+  const [blendName, setBlendName] = useState(existing?.blendName || "")
+  const [components, setComponents] = useState(
+    existing?.components?.length
+      ? existing.components.map((c, i) => ({ id: String(i + 1), ...c }))
+      : [{ id: "1", country: "", variety: "", process: "", ratio: "" }]
+  )
+  const [description, setDescription] = useState(existing?.memo || "")
+  const [tastingNotes, setTastingNotes] = useState(existing?.tastingNotes || [])
 
   useEffect(() => {
     const h = e => e.key === "Escape" && onClose()
@@ -563,7 +591,7 @@ function AddBeanModal({ onClose, onSave }) {
   const removeComponent = id => { if (components.length > 1) setComponents(prev => prev.filter(c => c.id !== id)) }
 
   const handleSave = () => {
-    const id = `b${Date.now()}`
+    const id = existing?.id || `b${Date.now()}`
     const isBlend = beanType === "blend"
     const newBean = {
       id,
@@ -577,7 +605,8 @@ function AddBeanModal({ onClose, onSave }) {
       variety: isBlend ? "Blend" : variety,
       process: isBlend ? "Blend" : process,
       roastDate: roastDate || new Date().toISOString().split("T")[0],
-      remaining: 100,
+      bagSize: Number(bagSize) || 200,
+      remaining: existing ? existing.remaining : 100,
       tastingNotes,
       memo: description,
       altitude: isBlend ? undefined : altitude,
@@ -601,8 +630,8 @@ function AddBeanModal({ onClose, onSave }) {
         >
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "26px" }}>
             <div>
-              <div style={{ ...label(8), marginBottom: "7px" }}>New Bean</div>
-              <h2 style={{ ...serifStyle(26), margin: 0, fontStyle: "italic" }}>Add to the shelf</h2>
+              <div style={{ ...label(8), marginBottom: "7px" }}>{isEdit ? "Edit Bean" : "New Bean"}</div>
+              <h2 style={{ ...serifStyle(26), margin: 0, fontStyle: "italic" }}>{isEdit ? "Fix the details" : "Add to the shelf"}</h2>
             </div>
             <button onClick={onClose} style={{ width: "38px", height: "38px", background: "transparent", border: T.hairline, color: T.sub, cursor: "pointer", fontSize: "16px" }}>×</button>
           </div>
@@ -668,7 +697,10 @@ function AddBeanModal({ onClose, onSave }) {
               <FormField label="Roastery" value={roastery} onChange={setRoastery} placeholder="e.g. Sey Coffee" />
               <FormField label="Roasting Machine" value={roasterMachine} onChange={setRoasterMachine} placeholder="e.g. Loring S15" />
             </div>
-            <FormField label="Roast Point" value={roastPoint} onChange={setRoastPoint} placeholder="e.g. Light / City / Full City" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+              <FormField label="Roast Point" value={roastPoint} onChange={setRoastPoint} placeholder="e.g. Light / City" />
+              <FormField label="Bag Size (g)" value={bagSize} onChange={setBagSize} placeholder="200" />
+            </div>
 
             <NotePicker selected={tastingNotes} onToggle={toggleNote} />
 
@@ -689,7 +721,7 @@ function AddBeanModal({ onClose, onSave }) {
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "26px" }}>
             <button onClick={onClose} style={BTN.ghost}>Cancel</button>
-            <button onClick={handleSave} style={BTN.solid}>Save Bean</button>
+            <button onClick={handleSave} style={BTN.solid}>{isEdit ? "Save Changes" : "Save Bean"}</button>
           </div>
         </motion.div>
       </div>
@@ -699,10 +731,12 @@ function AddBeanModal({ onClose, onSave }) {
 
 // ─── RECORD FORM (log a brew) ─────────────────────────────────────────────────
 
-function RecordForm({ bean, recipes, onClose }) {
+function RecordForm({ bean, recipes, onClose, onLogged }) {
   const [recipeId, setRecipeId] = useState("")
   const [feedback, setFeedback] = useState("")
+  const [dose, setDose] = useState("")
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
 
   const linked = recipes.filter(r => r.beanId === bean.id)
   const general = recipes.filter(r => r.beanId !== bean.id)
@@ -714,15 +748,29 @@ function RecordForm({ bean, recipes, onClose }) {
     return () => window.removeEventListener("keydown", h)
   }, [onClose])
 
+  // Pull the recipe's default dose in whenever a recipe is selected.
+  useEffect(() => {
+    if (recipe?.dose) setDose(String(recipe.dose).replace(/[^0-9.]/g, ""))
+  }, [recipeId])
+
+  const bagSize = Number(bean.bagSize) || 200
+  const doseNum = parseFloat(dose)
+  const pctUsed = doseNum > 0 ? (doseNum / bagSize) * 100 : 0
+  const nextRemaining = Math.max(0, Math.round((bean.remaining - pctUsed) * 10) / 10)
+
   const handleSaveEntry = async () => {
     setSaving(true)
+    setError("")
     try {
-      await postBrewLog({ bean, recipe, feedback })
+      await postBrewLog({ bean, recipe, feedback, dose })
+      // Only decrement once the log itself is safely stored.
+      if (pctUsed > 0) await onLogged(bean, nextRemaining)
+      onClose()
     } catch (err) {
       console.error("[brewlog] save failed:", err)
+      setError(err.message || "Could not save. Check your connection and try again.")
     } finally {
       setSaving(false)
-      onClose()
     }
   }
 
@@ -794,11 +842,47 @@ function RecordForm({ bean, recipes, onClose }) {
           )}
         </AnimatePresence>
 
+        {/* Dose → drives the remaining-amount countdown */}
+        <div style={{ marginBottom: "26px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", alignItems: "end" }}>
+            <div>
+              <span style={FORM.label}>Dose used (g)</span>
+              <input
+                value={dose}
+                onChange={e => setDose(e.target.value)}
+                inputMode="decimal"
+                placeholder="e.g. 15"
+                style={FORM.input}
+              />
+            </div>
+            <div>
+              <span style={FORM.label}>Remaining after this brew</span>
+              <div style={{ height: "42px", display: "flex", alignItems: "center", gap: "10px", borderBottom: T.hairline }}>
+                <div style={{ flex: 1, height: "2px", background: "rgba(20,18,15,0.1)" }}>
+                  <div style={{ height: "2px", width: `${nextRemaining}%`, background: T.ink, transition: "width 0.3s" }} />
+                </div>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px", color: pctUsed > 0 ? T.ink : T.faint }}>
+                  {pctUsed > 0 ? `${nextRemaining}%` : `${bean.remaining}%`}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ ...label(8, T.faint), textTransform: "none", letterSpacing: "0.05em", marginTop: "8px" }}>
+            Bag size {bagSize}g · leave dose empty to log without changing the remaining amount.
+          </div>
+        </div>
+
         <div style={{ marginBottom: "30px" }}>
           <span style={FORM.label}>Tasting Memo</span>
           <textarea value={feedback} onChange={e => setFeedback(e.target.value)} rows={5}
             placeholder="How did it taste today? Aroma, acidity, body, finish…" style={FORM.textarea} />
         </div>
+
+        {error && (
+          <div style={{ border: "1px solid rgba(180,60,40,0.35)", background: "rgba(180,60,40,0.06)", padding: "12px 14px", marginBottom: "14px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: "#8C3B28", lineHeight: 1.6 }}>
+            {error}
+          </div>
+        )}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
           <button onClick={onClose} style={BTN.ghost}>Cancel</button>
@@ -811,7 +895,7 @@ function RecordForm({ bean, recipes, onClose }) {
 
 // ─── BEAN DETAIL MODAL ────────────────────────────────────────────────────────
 
-function BeanDetailModal({ bean, recipes, onClose, onArchive }) {
+function BeanDetailModal({ bean, recipes, onClose, onArchive, onEdit, onLogged }) {
   const [showRecord, setShowRecord] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [rating, setRating] = useState(0)
@@ -923,6 +1007,10 @@ function BeanDetailModal({ bean, recipes, onClose, onArchive }) {
                 <span style={{ fontSize: "13px", lineHeight: 1 }}>+</span> Log a brew with this bean
               </button>
 
+              <button onClick={() => { onEdit(bean); onClose() }} style={{ ...BTN.ghost, width: "100%" }}>
+                Edit bean details
+              </button>
+
               <AnimatePresence mode="wait">
                 {!archiving ? (
                   <motion.button
@@ -954,7 +1042,14 @@ function BeanDetailModal({ bean, recipes, onClose, onArchive }) {
       </div>
 
       <AnimatePresence>
-        {showRecord && <RecordForm bean={bean} recipes={recipes} onClose={() => setShowRecord(false)} />}
+        {showRecord && (
+          <RecordForm
+            bean={bean}
+            recipes={recipes}
+            onLogged={onLogged}
+            onClose={() => { setShowRecord(false); onClose() }}
+          />
+        )}
       </AnimatePresence>
     </>
   )
@@ -1055,6 +1150,7 @@ const emptyRecipe = () => ({
   id: `r${Date.now()}`,
   name: "",
   beanId: "",
+  dose: "",
   grinder: "",
   clicks: "",
   waterTemp: "",
@@ -1240,6 +1336,66 @@ function BeanArchiveView({ beans }) {
   )
 }
 
+// ─── COFFEE ARCHIVE (brew log) ────────────────────────────────────────────────
+
+function CoffeeArchiveView({ logs, loading, error, beans }) {
+  const artFor = beanId => {
+    const b = beans.find(x => x.id === beanId)
+    return b ? beanArt(b).uri : null
+  }
+
+  return (
+    <div style={{ paddingTop: "40px" }}>
+      <div style={{ ...label(8), marginBottom: "8px" }}>Archive / Coffee</div>
+      <h2 style={{ ...serifStyle(32), margin: "0 0 28px", fontStyle: "italic" }}>Every cup, logged</h2>
+
+      {loading ? (
+        <div style={{ border: T.hairline, padding: "48px", textAlign: "center" }}>
+          <div style={{ ...label(8, T.ghost) }}>Loading brew log…</div>
+        </div>
+      ) : error ? (
+        <div style={{ border: "1px solid rgba(180,60,40,0.35)", background: "rgba(180,60,40,0.06)", padding: "18px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: "#8C3B28", lineHeight: 1.7 }}>
+          {error}
+        </div>
+      ) : logs.length === 0 ? (
+        <div style={{ border: T.hairline, padding: "48px", textAlign: "center" }}>
+          <div style={{ ...label(8, T.ghost) }}>No brews logged yet</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {logs.map((log, i) => {
+            const when = log.brewedAt
+              ? new Date(log.brewedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+              : ""
+            const art = artFor(log.beanId)
+            const specs = [log.dose && `${String(log.dose).replace(/g$/, "")}g`, log.clicks && `${log.clicks} clicks`, log.waterTemp, log.dripper, log.totalTime].filter(Boolean)
+            return (
+              <div key={log.id || i} style={{ display: "flex", gap: "18px", padding: "20px 0", borderBottom: i < logs.length - 1 ? T.hairline : "none" }}>
+                <div style={{ width: "44px", height: "56px", flexShrink: 0, border: T.hairline, backgroundImage: art || "none", backgroundColor: art ? undefined : "rgba(20,18,15,0.05)", backgroundSize: "cover", backgroundPosition: "center" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "12px" }}>
+                    <div style={{ ...serifStyle(17), fontStyle: "italic" }}>{log.beanName || "Unknown bean"}</div>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: T.faint, flexShrink: 0 }}>{when}</span>
+                  </div>
+                  {log.recipeName && <div style={{ ...label(8), marginTop: "5px" }}>{log.recipeName}</div>}
+                  {specs.length > 0 && (
+                    <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: T.sub, marginTop: "6px" }}>
+                      {specs.join(" · ")}
+                    </div>
+                  )}
+                  {log.feedback && (
+                    <p style={{ ...serifStyle(14, T.sub), lineHeight: 1.75, marginTop: "8px" }}>{log.feedback}</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── PLACEHOLDER ──────────────────────────────────────────────────────────────
 
 function PlaceholderView({ tag, title, desc }) {
@@ -1305,9 +1461,10 @@ function TopNav({ active, archiveTab, onChange, onArchiveTab }) {
 
 // ─── HOME VIEW ────────────────────────────────────────────────────────────────
 
-function HomeView({ beans, recipes, onAddBean, onArchive, loading }) {
+function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, loading }) {
   const [selected, setSelected] = useState(null)
   const [showAddBean, setShowAddBean] = useState(false)
+  const [editingBean, setEditingBean] = useState(null)
   const [greeting, setGreeting] = useState("Good evening")
   const [today, setToday] = useState("")
 
@@ -1359,12 +1516,30 @@ function HomeView({ beans, recipes, onAddBean, onArchive, loading }) {
 
       <AnimatePresence>
         {selected && (
-          <BeanDetailModal key={selected.id} bean={selected} recipes={recipes} onClose={() => setSelected(null)} onArchive={onArchive} />
+          <BeanDetailModal
+            key={selected.id}
+            bean={selected}
+            recipes={recipes}
+            onClose={() => setSelected(null)}
+            onArchive={onArchive}
+            onEdit={setEditingBean}
+            onLogged={onLogged}
+          />
         )}
       </AnimatePresence>
       <AnimatePresence>
         {showAddBean && (
           <AddBeanModal key="add-bean" onClose={() => setShowAddBean(false)} onSave={onAddBean} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {editingBean && (
+          <AddBeanModal
+            key={`edit-${editingBean.id}`}
+            existing={editingBean}
+            onClose={() => setEditingBean(null)}
+            onSave={onEditBean}
+          />
         )}
       </AnimatePresence>
     </>
@@ -1380,6 +1555,9 @@ export default function Page() {
   const [archivedBeans, setArchivedBeans] = useState([])
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
+  const [brewLogs, setBrewLogs] = useState([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState("")
 
   useEffect(() => {
     let cancelled = false
@@ -1394,6 +1572,23 @@ export default function Page() {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [])
+
+  // Brew logs live in their own sheet; fetch them when that tab is opened.
+  const loadLogs = () => {
+    setLogsLoading(true)
+    setLogsError("")
+    fetchBrewLogs()
+      .then(setBrewLogs)
+      .catch(err => {
+        console.error("[brewlogs] load failed:", err)
+        setLogsError("Couldn't load the brew log. If you recently changed Code.gs, redeploy it as a NEW version.")
+      })
+      .finally(() => setLogsLoading(false))
+  }
+
+  useEffect(() => {
+    if (active === "archive" && archiveTab === "Coffee") loadLogs()
+  }, [active, archiveTab])
 
   const handleAddBean = newBean => {
     setActiveBeans(prev => [...prev, newBean])
@@ -1414,12 +1609,44 @@ export default function Page() {
     })
   }
 
+  const handleEditBean = updated => {
+    const before = activeBeans.find(b => b.id === updated.id)
+    setActiveBeans(prev => prev.map(b => b.id === updated.id ? updated : b))
+    postUpdateBean(updated, beanToSheetRow(updated).row).catch(err => {
+      console.error("[beans] edit failed:", err)
+      if (before) setActiveBeans(prev => prev.map(b => b.id === updated.id ? before : b))
+      alert("Couldn't save the edit to the spreadsheet.\n\n" + err.message)
+    })
+  }
+
+  /** Called after a brew is logged, to draw down the bag. */
+  const handleLogged = async (bean, nextRemaining) => {
+    const before = bean.remaining
+    setActiveBeans(prev => prev.map(b => b.id === bean.id ? { ...b, remaining: nextRemaining } : b))
+    try {
+      await postUpdateBean(bean, { remaining: nextRemaining })
+    } catch (err) {
+      console.error("[beans] remaining update failed:", err)
+      setActiveBeans(prev => prev.map(b => b.id === bean.id ? { ...b, remaining: before } : b))
+      throw err
+    }
+  }
+
   const handleSaveRecipe = recipe => {
+    const before = recipes
     setRecipes(prev => {
       const exists = prev.some(r => r.id === recipe.id)
       return exists ? prev.map(r => r.id === recipe.id ? recipe : r) : [...prev, recipe]
     })
-    postUpsertRecipe(recipe).catch(err => console.error("[recipes] save failed:", err))
+    postUpsertRecipe(recipe).catch(err => {
+      console.error("[recipes] save failed:", err)
+      setRecipes(before)
+      alert(
+        "The recipe didn't reach the spreadsheet.\n\n" + err.message +
+        "\n\nIf this says \"Unknown action\", your Apps Script is still on the old version — " +
+        "paste in the v2 Code.gs and redeploy it as a NEW version."
+      )
+    })
   }
 
   return (
@@ -1439,7 +1666,15 @@ export default function Page() {
 
       <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 28px 80px" }}>
         {active === "home" && (
-          <HomeView beans={activeBeans} recipes={recipes} onAddBean={handleAddBean} onArchive={handleArchiveBean} loading={loading} />
+          <HomeView
+            beans={activeBeans}
+            recipes={recipes}
+            onAddBean={handleAddBean}
+            onArchive={handleArchiveBean}
+            onEditBean={handleEditBean}
+            onLogged={handleLogged}
+            loading={loading}
+          />
         )}
         {active === "cafe" && (
           <PlaceholderView tag="Cafe" title="Coffees from cafes worth remembering." desc="Keep a record of standout cups from cafes — where, what, and how they tasted." />
@@ -1448,12 +1683,11 @@ export default function Page() {
           <RecipeView recipes={recipes} beans={activeBeans} onSave={handleSaveRecipe} />
         )}
         {active === "archive" && archiveTab === "Beans" && <BeanArchiveView beans={archivedBeans} />}
-        {active === "archive" && archiveTab !== "Beans" && (
-          <PlaceholderView
-            tag={`Archive / ${archiveTab}`}
-            title={archiveTab === "Coffee" ? "Coffee Archive" : "Cafe Log"}
-            desc={archiveTab === "Coffee" ? "Every cup you brewed at home, chronologically recorded." : "Standout cups from cafes worth remembering."}
-          />
+        {active === "archive" && archiveTab === "Coffee" && (
+          <CoffeeArchiveView logs={brewLogs} loading={logsLoading} error={logsError} beans={[...activeBeans, ...archivedBeans]} />
+        )}
+        {active === "archive" && archiveTab === "Cafe" && (
+          <PlaceholderView tag="Archive / Cafe" title="Cafe Log" desc="Standout cups from cafes worth remembering." />
         )}
       </main>
     </div>

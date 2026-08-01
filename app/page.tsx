@@ -24,10 +24,22 @@ async function postToSheet(action, payload) {
   return json.data
 }
 
+/**
+ * Region and farm share one input, so people type "Sidama / Hamasho" or
+ * "Sidama, Hamasho". Normalise any of those separators to a middot.
+ */
+function formatRegionFarm(s) {
+  return String(s || "")
+    .split(/\s*[\/|,·]\s*/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .join(" · ")
+}
+
 function formatBlendComponentLine(comp) {
   const parts = [comp.country, comp.variety, comp.process].filter(Boolean)
   const ratio = comp.ratio ? `${String(comp.ratio).replace("%", "")}%` : ""
-  return [...parts, ratio].filter(Boolean).join(" ")
+  return [...parts, ratio].filter(Boolean).join(" · ")
 }
 
 function beanToSheetRow(bean) {
@@ -216,32 +228,56 @@ async function postBrewLog({ bean, recipe, feedback, dose }) {
 // Deterministic mapping so the same note always renders the same color,
 // like the color bar on a specialty coffee bag label.
 
+// Order matters: the FIRST match wins, so specific qualifiers ("green grape",
+// "white wine") must be listed before the generic fruit they contain.
 const NOTE_COLOR_MAP = [
-  { keys: ["jasmine", "white flower", "chamomile", "elderflower", "honeysuckle"], color: "#EAE6D8" },
+  // ── Qualified exceptions — follow the literal color of the thing ──────────
+  { keys: ["green grape", "white grape", "green apple", "green mango", "greengage"], color: "#A8C06A" },
+  { keys: ["white wine", "white peach", "white flower", "white tea", "white chocolate", "white grapefruit"], color: "#EFE9D6" },
+  { keys: ["yellow plum", "yellow fruit", "golden raisin", "yellow apple"], color: "#E8C75E" },
+  { keys: ["red apple", "red grape", "red plum", "red fruit", "red berry"], color: "#C0453F" },
+  { keys: ["black tea", "black currant", "blackcurrant"], color: "#4A3B57" },
+  { keys: ["milk chocolate", "milk tea"], color: "#A9805A" },
+  { keys: ["dark chocolate", "dark cherry", "dark berry"], color: "#4A2E22" },
+  { keys: ["brown sugar", "brown spice"], color: "#9C6B3F" },
+  { keys: ["green tea", "matcha"], color: "#8BA86B" },
+
+  // ── Florals ──────────────────────────────────────────────────────────────
+  { keys: ["jasmine", "chamomile", "elderflower", "honeysuckle", "orange blossom"], color: "#EAE6D8" },
   { keys: ["rose", "hibiscus", "floral"], color: "#E8B4C0" },
-  { keys: ["lavender", "violet"], color: "#B9A8D0" },
-  { keys: ["lemon", "lime", "citric", "yuzu"], color: "#EFD867" },
-  { keys: ["orange", "tangerine", "mandarin"], color: "#EE9F4C" },
-  { keys: ["grapefruit", "bergamot"], color: "#EE7A5C" },
-  { keys: ["blueberry", "blackcurrant", "cassis", "plum"], color: "#5B5B93" },
-  { keys: ["raspberry", "strawberry", "cherry", "cranberry", "red fruit", "pomegranate"], color: "#C94F5E" },
-  { keys: ["blackberry", "grape", "winey", "wine"], color: "#6E4460" },
+  { keys: ["lavender", "violet", "iris"], color: "#B9A8D0" },
+
+  // ── Citrus ───────────────────────────────────────────────────────────────
+  { keys: ["lemon", "lime", "citric", "yuzu", "citrus"], color: "#EFD867" },
+  { keys: ["orange", "tangerine", "mandarin", "clementine"], color: "#EE9F4C" },
+  { keys: ["grapefruit", "bergamot", "pomelo"], color: "#EE7A5C" },
+
+  // ── Berries & dark fruit ─────────────────────────────────────────────────
+  { keys: ["blueberry", "cassis", "plum", "fig"], color: "#5B5B93" },
+  { keys: ["raspberry", "strawberry", "cherry", "cranberry", "pomegranate", "currant"], color: "#C94F5E" },
+  { keys: ["blackberry", "grape", "winey", "wine", "raisin", "prune"], color: "#6E4460" },
+
+  // ── Stone & orchard fruit ────────────────────────────────────────────────
   { keys: ["peach", "apricot", "nectarine", "stone fruit"], color: "#F2B48A" },
-  { keys: ["apple", "pear", "green grape", "melon"], color: "#B9CB8F" },
-  { keys: ["lychee", "tropical", "mango", "pineapple", "passion", "papaya", "guava"], color: "#EFC33F" },
-  { keys: ["earl grey", "black tea", "tea"], color: "#9B9083" },
-  { keys: ["honey", "caramel", "brown sugar", "maple", "molasses", "toffee", "cane sugar"], color: "#C98F4A" },
-  { keys: ["vanilla", "cream", "butter", "malt"], color: "#E4D3B0" },
-  { keys: ["chocolate", "cocoa", "cacao", "dark chocolate"], color: "#6B4A38" },
-  { keys: ["almond", "hazelnut", "peanut", "nut", "walnut"], color: "#B08D62" },
-  { keys: ["cinnamon", "clove", "nutmeg", "spice", "anise", "pepper"], color: "#A65B33" },
-  { keys: ["herb", "green", "fresh", "mint", "grass"], color: "#7EA377" },
-  { keys: ["smoky", "tobacco", "roasted", "burnt", "ashy"], color: "#5C554E" },
-  { keys: ["fermented", "whiskey", "rum", "boozy", "funk"], color: "#8A5A44" },
+  { keys: ["apple", "pear", "melon", "quince"], color: "#B9CB8F" },
+  { keys: ["lychee", "tropical", "mango", "pineapple", "passion", "papaya", "guava", "banana"], color: "#EFC33F" },
+
+  // ── Sweet, nutty, spice ──────────────────────────────────────────────────
+  { keys: ["earl grey", "tea", "oolong"], color: "#9B9083" },
+  { keys: ["honey", "caramel", "maple", "molasses", "toffee", "cane sugar", "syrup"], color: "#C98F4A" },
+  { keys: ["vanilla", "cream", "butter", "malt", "biscuit", "shortbread"], color: "#E4D3B0" },
+  { keys: ["chocolate", "cocoa", "cacao", "fudge"], color: "#6B4A38" },
+  { keys: ["almond", "hazelnut", "peanut", "walnut", "pecan", "nut"], color: "#B08D62" },
+  { keys: ["cinnamon", "clove", "nutmeg", "spice", "anise", "pepper", "cardamom"], color: "#A65B33" },
+
+  // ── Green / savory / roast ───────────────────────────────────────────────
+  { keys: ["herb", "green", "mint", "grass", "basil", "fresh"], color: "#7EA377" },
+  { keys: ["smoky", "tobacco", "roasted", "burnt", "ashy", "cedar", "wood"], color: "#5C554E" },
+  { keys: ["fermented", "whiskey", "rum", "boozy", "funk", "brandy"], color: "#8A5A44" },
 ]
 
 function noteColor(note) {
-  const n = String(note).toLowerCase()
+  const n = String(note).toLowerCase().trim()
   for (const entry of NOTE_COLOR_MAP) {
     if (entry.keys.some(k => n.includes(k))) return entry.color
   }
@@ -253,25 +289,11 @@ function hexA(hex, alpha) {
   return `${hex}${a}`
 }
 
-/** Coffee-bag style note color bar. Still used in small UI spots. */
-function NoteBar({ notes, height = 6 }) {
-  const list = (notes || []).slice(0, 5)
-  if (list.length === 0) {
-    return <div style={{ height: `${height}px`, background: "rgba(20,18,15,0.07)" }} />
-  }
-  return (
-    <div style={{ display: "flex", height: `${height}px`, overflow: "hidden" }}>
-      {list.map((n, i) => (
-        <div key={i} title={n} style={{ flex: 1, background: noteColor(n) }} />
-      ))}
-    </div>
-  )
-}
-
 // ─── SEEDED GENERATIVE LABEL ART ──────────────────────────────────────────────
 // Each bean gets a unique abstract artwork, generated deterministically from
 // its id + tasting-note palette. Same bean → same art, every time.
-// Three styles: 0 grainy gradient / 1 diagonal bands / 2 watercolor wash.
+// Four styles, cycled by shelf position so neighbours never look alike:
+// 0 grainy gradient / 1 diagonal bands / 2 watercolor wash / 3 painted petals.
 
 function hashStr(s) {
   let h = 1779033703
@@ -305,26 +327,29 @@ function lumOf(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
-function beanArt(bean) {
+function beanArt(bean, index = null) {
   const seed = hashStr(String(bean.id) + String(bean.name || ""))
   const rnd = mulberry32(seed)
   let cols = [...new Set((bean.tastingNotes || []).map(noteColor))]
   if (cols.length === 0) cols = ["#C9C2B6", "#EAE6D8"]
   if (cols.length === 1) cols = [cols[0], mixHex(cols[0], "#FFFFFF", 0.45)]
   const P = cols.slice(0, 4)
-  const style = Math.floor(rnd() * 3)
+
+  // Cycle styles by position so a shelf never shows the same look twice in a
+  // row. Falls back to the seed when there's no position (modals, thumbnails).
+  const style = index === null ? seed % 4 : index % 4
   const W = 420, H = 540
   let inner = ""
 
   if (style === 0) {
-    // Grainy multi-stop gradient (Nordically)
+    // Grainy multi-stop gradient
     const ang = Math.floor(rnd() * 360)
     const stops = P.map((c, i) => `<stop offset="${Math.round((i / Math.max(1, P.length - 1)) * 100)}%" stop-color="${c}"/>`).join("")
     inner = `<defs><linearGradient id="lg" gradientTransform="rotate(${ang} 0.5 0.5)">${stops}</linearGradient></defs>` +
       `<rect width="${W}" height="${H}" fill="url(#lg)"/>` +
       `<circle cx="${rnd() * W}" cy="${rnd() * H}" r="${160 + rnd() * 130}" fill="#ffffff" opacity="0.16" filter="url(#blur)"/>`
   } else if (style === 1) {
-    // Bold diagonal bands (TANAT)
+    // Bold diagonal bands
     inner = `<rect width="${W}" height="${H}" fill="${P[0]}"/>`
     const n = 3 + Math.floor(rnd() * 2)
     for (let i = 0; i < n; i++) {
@@ -334,53 +359,141 @@ function beanArt(bean) {
       const rot = rnd() * 56 - 28
       inner += `<rect x="-120" y="${y}" width="${W + 240}" height="${h}" fill="${c}" transform="rotate(${rot.toFixed(1)} ${W / 2} ${y.toFixed(1)})"/>`
     }
-  } else {
-    // Watercolor wash on paper (aery)
+  } else if (style === 2) {
+    // Watercolor wash on paper
     inner = `<rect width="${W}" height="${H}" fill="#F2EFE7"/>`
     const n = 4 + Math.floor(rnd() * 3)
     for (let i = 0; i < n; i++) {
       const c = P[i % P.length]
       inner += `<ellipse cx="${(rnd() * W).toFixed(1)}" cy="${(rnd() * H).toFixed(1)}" rx="${(100 + rnd() * 140).toFixed(1)}" ry="${(90 + rnd() * 130).toFixed(1)}" fill="${c}" opacity="${(0.32 + rnd() * 0.3).toFixed(2)}" filter="url(#blur)"/>`
     }
+  } else {
+    // Soft-focus painted petals (ref: Hocus Pocus Roasters).
+    // Broad overlapping brush sweeps, heavily blurred, on a pale ground.
+    const pale = mixHex(P[0], "#FFFFFF", 0.72)
+    inner = `<rect width="${W}" height="${H}" fill="${pale}"/>`
+    const n = 5 + Math.floor(rnd() * 3)
+    for (let i = 0; i < n; i++) {
+      const c = P[i % P.length]
+      const cx = rnd() * W
+      const cy = rnd() * H
+      const rx = 130 + rnd() * 170
+      const ry = 60 + rnd() * 90
+      const rot = rnd() * 180
+      // Each "petal" is a wide soft ellipse with a lighter highlight edge.
+      inner += `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="${c}" opacity="${(0.5 + rnd() * 0.3).toFixed(2)}" transform="rotate(${rot.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" filter="url(#soft)"/>`
+      inner += `<ellipse cx="${(cx + rx * 0.18).toFixed(1)}" cy="${(cy - ry * 0.3).toFixed(1)}" rx="${(rx * 0.6).toFixed(1)}" ry="${(ry * 0.5).toFixed(1)}" fill="${mixHex(c, "#FFFFFF", 0.55)}" opacity="0.5" transform="rotate(${rot.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" filter="url(#soft)"/>`
+    }
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="48"/></filter></defs>${inner}</svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="48"/></filter><filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="30"/></filter></defs>${inner}</svg>`
   return { uri: `url("data:image/svg+xml,${encodeURIComponent(svg)}")`, style, palette: P }
 }
 
 /** Text color that reads on a given artwork. */
 function artInk(art) {
   const avg = art.palette.reduce((s, c) => s + lumOf(c), 0) / art.palette.length
-  const adjusted = art.style === 2 ? avg * 0.35 + 0.93 * 0.65 : avg
+  const adjusted = (art.style === 2 || art.style === 3) ? avg * 0.35 + 0.93 * 0.65 : avg
   return adjusted > 0.6 ? "#17140F" : "#FBFAF7"
 }
 
 const GRAIN = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
 
+function titleCaseWords(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/(^|[\s\-·/])([a-z])/g, (_, pre, ch) => pre + ch.toUpperCase())
+}
+
 /**
  * The one place mixed roman/italic type is allowed (ref: "eth·iopia").
- * Split point is seeded so each bean keeps its own rhythm.
+ * The split point is derived from the WORD ITSELF, so every "Ethiopia" in the
+ * app breaks at exactly the same letter — consistency over novelty.
  */
-function MixedWord({ text, seedKey, style }) {
-  const t = String(text || "")
-  if (t.length < 4) return <span style={style}>{t}</span>
-  const h = hashStr(seedKey || t)
-  const cut = 2 + (h % (t.length - 3))
+function MixedWord({ text, style }) {
+  const t = titleCaseWords(text)
+  const words = t.split(" ")
+  const first = words[0] || ""
+  if (first.length < 4) return <span style={style}>{t}</span>
+  // Break just after the first vowel cluster, clamped to the middle third.
+  const m = first.slice(1).match(/[aeiou]+/i)
+  let cut = m ? 1 + m.index + m[0].length : Math.ceil(first.length / 2)
+  cut = Math.max(2, Math.min(cut, first.length - 1))
   return (
     <span style={style}>
-      {t.slice(0, cut)}
-      <span style={{ fontStyle: "italic" }}>{t.slice(cut)}</span>
+      {first.slice(0, cut)}
+      <span style={{ fontStyle: "italic" }}>{first.slice(cut)}</span>
+      {words.length > 1 ? " " + words.slice(1).join(" ") : ""}
     </span>
   )
 }
 
-/** Soft wash of the top two note colors, used as the card background tint. */
-function noteTint(notes) {
-  const list = (notes || [])
-  if (list.length === 0) return "transparent"
-  const c1 = noteColor(list[0])
-  const c2 = noteColor(list[1] || list[0])
-  return `linear-gradient(150deg, ${hexA(c1, 0.16)} 0%, ${hexA(c2, 0.08)} 45%, transparent 80%)`
+
+// ─── GREETINGS ────────────────────────────────────────────────────────────────
+// Deep enough (54) that a daily user shouldn't notice a repeat.
+// One is picked per day, seeded by the date, so it stays put while you use the app.
+
+const GREETINGS = [
+  "First cup decides the day.",
+  "Grind fine, live coarse.",
+  "Water is 98% of the cup. Be humble.",
+  "No such thing as too early.",
+  "Bloom now, panic later.",
+  "The bed should be flat. So should your ego.",
+  "Chase the aroma, not the clock.",
+  "A bad brew is just a rough draft.",
+  "Somewhere a farmer woke up before you.",
+  "Slow pour, fast morning.",
+  "Today's variable: everything.",
+  "Taste it before you fix it.",
+  "The kettle is patient. Be likewise.",
+  "Sweetness lives just past the panic.",
+  "Two grams changes everything.",
+  "Drink it while it's honest.",
+  "Cold coffee tells the truth.",
+  "Your palate is a muscle. Use it.",
+  "Overextracted is just enthusiasm.",
+  "Slight underdose, generous mood.",
+  "Every bag is a countdown.",
+  "Roast dates are a love language.",
+  "You can't rush the bloom.",
+  "Notes are a rumor until you taste them.",
+  "The best recipe is the one you repeat.",
+  "Consistency beats brilliance.",
+  "Wake the beans gently.",
+  "Small batch, whole heart.",
+  "Acidity is not an insult.",
+  "Let it cool. It gets better.",
+  "The grinder knows what you did.",
+  "Coffee is a deadline with a smell.",
+  "Measure twice, drink once.",
+  "Beans travel far. Respect the trip.",
+  "You are 20% water and 80% intention.",
+  "Nothing good was ever brewed in a hurry.",
+  "Log it or it never happened.",
+  "The scale doesn't lie. You might.",
+  "Filter coffee, unfiltered thoughts.",
+  "Today's dose: enough.",
+  "Rinse the filter. Rinse the mind.",
+  "Some mornings are a light roast.",
+  "Some mornings need a dark one.",
+  "Stir gently, think loudly.",
+  "Altitude builds character.",
+  "Fermentation is just patience with a deadline.",
+  "The pour is the meditation.",
+  "One more click finer.",
+  "Good beans forgive small mistakes.",
+  "Steam rises. So can you.",
+  "Drink the good stuff on ordinary days.",
+  "Fresh is a fleeting condition.",
+  "Brew like someone's watching.",
+  "Begin. The water's ready.",
+]
+
+/** Same greeting all day, different tomorrow. */
+function greetingForToday(d = new Date()) {
+  const dayKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+  return GREETINGS[hashStr(dayKey) % GREETINGS.length]
 }
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
@@ -646,7 +759,7 @@ function AddBeanModal({ onClose, onSave, existing = null }) {
                 <motion.div key="single" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                     <FormField label="Country" value={country} onChange={setCountry} placeholder="e.g. Kenya" />
-                    <FormField label="Region / Farm" value={regionFarm} onChange={setRegionFarm} placeholder="e.g. Kiambu Windrush AB" />
+                    <FormField label="Region · Farm" value={regionFarm} onChange={setRegionFarm} placeholder="e.g. Sidama / Hamasho" />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                     <FormField label="Variety" value={variety} onChange={setVariety} placeholder="e.g. SL28 · SL34" />
@@ -895,13 +1008,17 @@ function RecordForm({ bean, recipes, onClose, onLogged }) {
 
 // ─── BEAN DETAIL MODAL ────────────────────────────────────────────────────────
 
-function BeanDetailModal({ bean, recipes, onClose, onArchive, onEdit, onLogged }) {
+function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onLogged }) {
   const [showRecord, setShowRecord] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [rating, setRating] = useState(0)
   const isBlend = bean.beanType === "blend"
   const dday = getRoastDDay(bean.roastDate)
   const roasted = new Date(bean.roastDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  const art = beanArt(bean, index)
+  const ink = artInk(art)
+  const light = ink !== "#17140F"
+  const artSub = light ? "rgba(251,250,247,0.72)" : "rgba(23,20,15,0.65)"
 
   useEffect(() => {
     const h = e => e.key === "Escape" && (showRecord ? setShowRecord(false) : onClose())
@@ -910,136 +1027,165 @@ function BeanDetailModal({ bean, recipes, onClose, onArchive, onEdit, onLogged }
   }, [showRecord, onClose])
 
   const meta = isBlend
-    ? [["Roastery", bean.roaster], ["Machine", bean.roasterMachine], ["Roast Point", bean.roastPoint], ["Roast Date", `${roasted} (D+${dday})`]]
-    : [["Country", bean.origin], ["Farm", bean.farm], ["Variety", bean.variety], ["Process", bean.process], ["Altitude", bean.altitude], ["Roastery", bean.roaster], ["Machine", bean.roasterMachine], ["Roast Point", bean.roastPoint], ["Roast Date", `${roasted} (D+${dday})`]]
+    ? [["Roastery", bean.roaster], ["Machine", bean.roasterMachine], ["Roast Point", bean.roastPoint], ["Bag Size", bean.bagSize ? `${bean.bagSize}g` : ""]]
+    : [["Region · Farm", formatRegionFarm(bean.farm)], ["Altitude", bean.altitude], ["Process", bean.process], ["Variety", bean.variety], ["Roastery", bean.roaster], ["Machine", bean.roasterMachine], ["Roast Point", bean.roastPoint], ["Bag Size", bean.bagSize ? `${bean.bagSize}g` : ""]]
 
   return (
     <>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}
-        style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(20,18,15,0.45)", backdropFilter: "blur(8px)" }} />
-      <div style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", pointerEvents: "none" }}>
-        <motion.div
-          layoutId={`bean-card-${bean.id}`}
-          transition={{ type: "spring", stiffness: 300, damping: 32 }}
-          style={{ width: "100%", maxWidth: "460px", maxHeight: "88vh", overflowY: "auto", background: T.card, border: T.hairline, pointerEvents: "auto", position: "relative", boxSizing: "border-box" }}
-        >
-          {(() => {
-            const art = beanArt(bean)
-            const ink = artInk(art)
-            const light = ink !== "#17140F"
-            const sub = light ? "rgba(251,250,247,0.75)" : "rgba(23,20,15,0.7)"
-            return (
-              <div style={{ position: "relative", padding: "26px 26px 22px", backgroundImage: art.uri, backgroundSize: "cover", backgroundPosition: "center", overflow: "hidden" }}>
-                <div style={{ position: "absolute", inset: 0, backgroundImage: GRAIN, backgroundSize: "140px", opacity: 0.14, mixBlendMode: "multiply", pointerEvents: "none" }} />
-                <div style={{ position: "absolute", inset: 0, background: light ? "linear-gradient(to top, rgba(10,8,6,0.4), transparent 65%)" : "linear-gradient(to top, rgba(251,250,247,0.45), transparent 65%)", pointerEvents: "none" }} />
-                <div style={{ position: "relative" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div style={{ ...MONO, fontSize: "8px", color: sub, marginBottom: "26px" }}>{isBlend ? "Blend" : `${bean.origin} · ${bean.process}`}</div>
-                    <button onClick={onClose} style={{ width: "32px", height: "32px", background: "transparent", border: `1px solid ${light ? "rgba(251,250,247,0.4)" : "rgba(23,20,15,0.3)"}`, color: ink, cursor: "pointer", fontSize: "14px", flexShrink: 0 }}>×</button>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
+        style={{ position: "fixed", inset: 0, zIndex: 100, background: T.paper }}
+      />
+
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.25, delay: 0.05 }}
+        style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", flexDirection: "column" }}
+      >
+        {/* Header rail */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px", borderBottom: T.hairline, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: T.ink }} />
+            <span style={label(8)}>Archive / {String(index ?? 0).padStart(3, "0")}</span>
+          </div>
+          <button onClick={onClose} style={{ width: "34px", height: "34px", background: "transparent", border: T.hairline, color: T.sub, cursor: "pointer", fontSize: "15px" }}>×</button>
+        </div>
+
+        {/* Three-column body */}
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "minmax(200px, 1fr) minmax(320px, 1.5fr) minmax(280px, 1.1fr)", minHeight: 0 }}>
+          {/* Left — origin headline + collection meta */}
+          <div style={{ padding: "36px 28px", borderRight: T.hairline, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+            <div style={{ ...label(8), marginBottom: "10px" }}>Origin</div>
+            <MixedWord
+              text={isBlend ? "Blend" : bean.origin}
+              style={{ ...serifStyle(38), letterSpacing: "-0.01em", display: "block", marginBottom: "10px" }}
+            />
+            <div style={{ ...serifStyle(16, T.sub), marginBottom: "30px" }}>
+              {isBlend ? (bean.blendName || bean.name) : bean.name}
+            </div>
+
+            <div style={{ ...label(8), marginBottom: "8px" }}>Collection</div>
+            <div style={{ ...serifStyle(16), marginBottom: "26px" }}>{bean.roaster || "Untitled Roastery"}</div>
+
+            <div style={{ ...label(8), marginBottom: "8px" }}>Index No.</div>
+            <p style={{ ...serifStyle(14, T.sub), lineHeight: 1.7, marginBottom: "28px" }}>
+              {bean.memo || "No notes recorded for this bean yet."}
+            </p>
+
+            <div style={{ marginTop: "auto", paddingTop: "24px" }}>
+              <div style={{ ...label(8), marginBottom: "10px" }}>Remaining</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{ flex: 1, height: "2px", background: "rgba(20,18,15,0.1)" }}>
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${bean.remaining}%` }} transition={{ delay: 0.25, duration: 0.8 }} style={{ height: "2px", background: T.ink }} />
+                </div>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" }}>{bean.remaining}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Center — the artwork, nothing else */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "36px", position: "relative", overflow: "hidden" }}>
+            <motion.div
+              layoutId={`bean-card-${bean.id}`}
+              transition={{ type: "spring", stiffness: 220, damping: 30 }}
+              style={{
+                position: "relative", height: "100%", width: "100%",
+                maxHeight: "100%", aspectRatio: "3/4", margin: "0 auto",
+                backgroundImage: art.uri, backgroundSize: "cover", backgroundPosition: "center",
+                boxShadow: "0 28px 70px rgba(20,18,15,0.18)", overflow: "hidden",
+              }}
+            >
+              <div style={{ position: "absolute", inset: 0, backgroundImage: GRAIN, backgroundSize: "140px", opacity: 0.14, mixBlendMode: "multiply" }} />
+            </motion.div>
+          </div>
+
+          {/* Right — technical profile + actions */}
+          <div style={{ borderLeft: T.hairline, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <div style={{ flex: 1, overflowY: "auto", padding: "36px 28px" }}>
+              <div style={{ ...label(8), marginBottom: "18px" }}>Technical Profile</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 20px", marginBottom: "26px" }}>
+                {meta.filter(([, v]) => v).map(([l, v]) => (
+                  <div key={l}>
+                    <div style={{ ...label(7), marginBottom: "4px" }}>{l}</div>
+                    <div style={{ ...serifStyle(14) }}>{v}</div>
                   </div>
-                  <MixedWord
-                    text={String(isBlend ? (bean.blendName || bean.name) : bean.name).toLowerCase()}
-                    seedKey={bean.id}
-                    style={{ ...serifStyle(32, ink), letterSpacing: "-0.01em" }}
-                  />
-                  {isBlend && (bean.components || []).length > 0 && (
-                    <div style={{ marginTop: "10px" }}>
-                      {(bean.components || []).map((c, i) => (
-                        <div key={i} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: sub, marginBottom: "2px" }}>{formatBlendComponentLine(c)}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                ))}
               </div>
-            )
-          })()}
 
-          <div style={{ padding: "22px 26px 26px" }}>
-            {/* Remaining */}
-            <div style={{ marginBottom: "22px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "7px" }}>
-                <span style={label(8)}>Remaining</span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px", color: T.ink }}>{bean.remaining}%</span>
-              </div>
-              <div style={{ height: "2px", background: "rgba(20,18,15,0.08)" }}>
-                <motion.div initial={{ width: 0 }} animate={{ width: `${bean.remaining}%` }} transition={{ delay: 0.15, duration: 0.8, ease: "easeOut" }} style={{ height: "2px", background: T.ink }} />
-              </div>
-            </div>
-
-            {/* Meta */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 20px", paddingTop: "18px", borderTop: T.hairline }}>
-              {meta.filter(([, v]) => v).map(([l, v]) => (
-                <div key={l}>
-                  <div style={{ ...label(7), marginBottom: "4px" }}>{l}</div>
-                  <div style={{ ...serifStyle(14, T.ink) }}>{v}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Notes as chips */}
-            {bean.tastingNotes.length > 0 && (
-              <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: T.hairline }}>
-                <div style={{ ...label(7), marginBottom: "10px" }}>Tasting Notes</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                  {bean.tastingNotes.map(n => (
-                    <span key={n} style={{ display: "flex", alignItems: "center", gap: "7px", border: T.hairline, padding: "4px 10px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: T.sub }}>
-                      <span style={{ width: "9px", height: "9px", background: noteColor(n), display: "inline-block" }} />
-                      {n}
-                    </span>
+              {isBlend && (bean.components || []).length > 0 && (
+                <div style={{ marginBottom: "26px", paddingTop: "18px", borderTop: T.hairline }}>
+                  <div style={{ ...label(7), marginBottom: "10px" }}>Components</div>
+                  {(bean.components || []).map((c, i) => (
+                    <div key={i} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: T.sub, marginBottom: "4px" }}>{formatBlendComponentLine(c)}</div>
                   ))}
                 </div>
+              )}
+
+              {bean.tastingNotes.length > 0 && (
+                <div style={{ paddingTop: "18px", borderTop: T.hairline, marginBottom: "26px" }}>
+                  <div style={{ ...label(7), marginBottom: "10px" }}>Flavor Spectrum</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {bean.tastingNotes.map(n => (
+                      <span key={n} style={{ display: "flex", alignItems: "center", gap: "7px", border: T.hairline, padding: "5px 10px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: T.sub, background: T.card }}>
+                        <span style={{ width: "8px", height: "8px", background: noteColor(n), display: "inline-block" }} />
+                        {n.toUpperCase()}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ paddingTop: "18px", borderTop: T.hairline }}>
+                <div style={{ ...label(7), marginBottom: "6px" }}>Roast Date</div>
+                <div style={{ ...serifStyle(14) }}>{roasted} <span style={{ color: T.faint }}>· D+{dday}</span></div>
               </div>
-            )}
+            </div>
 
-            {bean.memo && (
-              <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: T.hairline }}>
-                <div style={{ ...label(7), marginBottom: "8px" }}>Memo</div>
-                <p style={{ ...serifStyle(14, T.sub), lineHeight: 1.8, margin: 0 }}>{bean.memo}</p>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ marginTop: "24px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <button
-                onClick={() => setShowRecord(true)}
-                style={{ ...BTN.solid, width: "100%", height: "46px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}
-              >
-                <span style={{ fontSize: "13px", lineHeight: 1 }}>+</span> Log a brew with this bean
-              </button>
-
-              <button onClick={() => { onEdit(bean); onClose() }} style={{ ...BTN.ghost, width: "100%" }}>
-                Edit bean details
-              </button>
-
+            {/* Action bar, pinned bottom-right */}
+            <div style={{ borderTop: T.hairline, padding: "18px 28px", flexShrink: 0 }}>
               <AnimatePresence mode="wait">
                 {!archiving ? (
-                  <motion.button
-                    key="archive-btn"
-                    exit={{ opacity: 0 }}
-                    onClick={() => setArchiving(true)}
-                    style={{ ...BTN.ghost, width: "100%" }}
-                  >Finish & archive this bean</motion.button>
-                ) : (
-                  <motion.div key="rating" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ border: T.hairline, padding: "18px", textAlign: "center" }}>
-                    <div style={{ ...label(8), marginBottom: "12px" }}>How was this bean overall?</div>
-                    <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
-                      <Stars value={rating} onChange={setRating} size={26} />
+                  <motion.div key="actions" exit={{ opacity: 0 }} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <button
+                      onClick={() => setShowRecord(true)}
+                      style={{ ...BTN.solid, width: "100%", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}
+                    >
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#C98F4A" }} />
+                      Brew
+                    </button>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button onClick={() => { onEdit(bean); onClose() }} style={{ ...BTN.ghost, flex: 1, padding: 0 }}>Edit</button>
+                      <button onClick={() => setArchiving(true)} style={{ ...BTN.ghost, flex: 1, padding: 0 }}>Archive</button>
                     </div>
-                    <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-                      <button onClick={() => setArchiving(false)} style={{ ...BTN.ghost, height: "36px" }}>Back</button>
+                  </motion.div>
+                ) : (
+                  <motion.div key="rating" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ textAlign: "center" }}>
+                    <div style={{ ...label(8), marginBottom: "10px" }}>How was this bean overall?</div>
+                    <div style={{ display: "flex", justifyContent: "center", marginBottom: "14px" }}>
+                      <Stars value={rating} onChange={setRating} size={24} />
+                    </div>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button onClick={() => setArchiving(false)} style={{ ...BTN.ghost, flex: 1, padding: 0, height: "36px" }}>Back</button>
                       <button
                         onClick={() => { onArchive(bean, rating); onClose() }}
                         disabled={rating === 0}
-                        style={{ ...BTN.solid, height: "36px", opacity: rating === 0 ? 0.4 : 1 }}
-                      >Archive with {rating || "–"}★</button>
+                        style={{ ...BTN.solid, flex: 1, padding: 0, height: "36px", opacity: rating === 0 ? 0.4 : 1 }}
+                      >Archive {rating || "–"}★</button>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
           </div>
-        </motion.div>
-      </div>
+        </div>
+
+        {/* Footer rail */}
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 28px", borderTop: T.hairline, flexShrink: 0 }}>
+          <span style={{ ...MONO, fontSize: "7px", color: T.faint }}>{isBlend ? "Blend" : bean.origin}</span>
+          <span style={{ ...MONO, fontSize: "7px", color: T.faint }}>Roast Level: {bean.roastPoint || "—"}</span>
+        </div>
+      </motion.div>
 
       <AnimatePresence>
         {showRecord && (
@@ -1057,11 +1203,11 @@ function BeanDetailModal({ bean, recipes, onClose, onArchive, onEdit, onLogged }
 
 // ─── BEAN CARD (generative label art) ─────────────────────────────────────────
 
-function BeanCard({ bean, onClick }) {
+function BeanCard({ bean, index, onClick }) {
   const [hovered, setHovered] = useState(false)
   const isBlend = bean.beanType === "blend"
   const dday = getRoastDDay(bean.roastDate)
-  const art = beanArt(bean)
+  const art = beanArt(bean, index)
   const ink = artInk(art)
   const light = ink !== "#17140F"
   const sub = light ? "rgba(251,250,247,0.78)" : "rgba(23,20,15,0.72)"
@@ -1107,8 +1253,7 @@ function BeanCard({ bean, onClick }) {
       <div style={{ position: "absolute", left: "18px", right: "18px", bottom: "34px" }}>
         <div style={{ marginBottom: "8px" }}>
           <MixedWord
-            text={String(hero).toLowerCase()}
-            seedKey={bean.id}
+            text={hero}
             style={{ ...serifStyle(34, ink), letterSpacing: "-0.01em", wordBreak: "break-word" }}
           />
         </div>
@@ -1120,7 +1265,7 @@ function BeanCard({ bean, onClick }) {
           ))
         ) : (
           <>
-            {bean.farm && <div style={{ ...serifStyle(15, sub) }}>{bean.farm}</div>}
+            {bean.farm && <div style={{ ...serifStyle(15, sub) }}>{formatRegionFarm(bean.farm)}</div>}
             <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: faint, marginTop: "5px", letterSpacing: "0.06em" }}>
               {[bean.variety, bean.process, bean.roastPoint].filter(Boolean).join(" · ")}
             </div>
@@ -1322,7 +1467,7 @@ function BeanArchiveView({ beans }) {
             const title = isBlend ? (bean.blendName || bean.name) : `${bean.origin} · ${bean.name}`
             return (
               <div key={bean.id} style={{ display: "flex", alignItems: "center", gap: "18px", padding: "18px 0", borderBottom: i < beans.length - 1 ? T.hairline : "none" }}>
-                <div style={{ width: "44px", height: "56px", flexShrink: 0, backgroundImage: beanArt(bean).uri, backgroundSize: "cover", backgroundPosition: "center", border: T.hairline }} />
+                <div style={{ width: "44px", height: "56px", flexShrink: 0, backgroundImage: beanArt(bean, i).uri, backgroundSize: "cover", backgroundPosition: "center", border: T.hairline }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ ...serifStyle(16), fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
                   <div style={{ ...label(8), marginTop: "3px" }}>{bean.roaster}{bean.roastPoint ? ` · ${bean.roastPoint}` : ""}</div>
@@ -1412,42 +1557,70 @@ function PlaceholderView({ tag, title, desc }) {
   )
 }
 
-// ─── TOP NAV ──────────────────────────────────────────────────────────────────
+// ─── SIDE NAV ─────────────────────────────────────────────────────────────────
 
-function TopNav({ active, archiveTab, onChange, onArchiveTab }) {
-  const [archiveOpen, setArchiveOpen] = useState(false)
+function SideNav({ active, archiveTab, onChange, onArchiveTab }) {
+  const [archiveOpen, setArchiveOpen] = useState(active === "archive")
 
-  const navBtn = (id): CSSProperties => ({
-    ...MONO, fontSize: "9px",
+  useEffect(() => { if (active === "archive") setArchiveOpen(true) }, [active])
+
+  const item = (id, isSub = false): CSSProperties => ({
+    ...MONO,
+    fontSize: isSub ? "8px" : "9px",
     color: active === id ? T.ink : T.faint,
-    borderBottom: active === id ? `1px solid ${T.ink}` : "1px solid transparent",
-    paddingBottom: "4px",
-    cursor: "pointer", background: "none", border: "none", borderRadius: 0,
+    background: "none",
+    border: "none",
+    borderRadius: 0,
+    padding: 0,
+    textAlign: "left",
+    cursor: "pointer",
     transition: "color 0.2s",
+    display: "block",
+    width: "100%",
   })
 
   return (
-    <nav style={{ position: "sticky", top: 0, zIndex: 80, height: "54px", background: "rgba(239,237,231,0.95)", backdropFilter: "blur(12px)", borderBottom: T.hairline, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "32px" }}>
-        <button onClick={() => onChange("home")} style={navBtn("home")}>Home</button>
-        <button onClick={() => onChange("cafe")} style={navBtn("cafe")}>Cafe</button>
-        <button onClick={() => onChange("recipe")} style={navBtn("recipe")}>Recipe</button>
-        <div style={{ position: "relative" }}
-          onMouseEnter={() => setArchiveOpen(true)}
-          onMouseLeave={() => setArchiveOpen(false)}
-        >
-          <button onClick={() => { onChange("archive") }} style={{ ...navBtn("archive"), display: "flex", alignItems: "center", gap: "4px" }}>
-            Archive <span style={{ fontSize: "7px", opacity: 0.5 }}>▾</span>
+    <nav style={{
+      position: "fixed", top: 0, left: 0, bottom: 0, width: "168px", zIndex: 60,
+      borderRight: T.hairline, background: T.paper,
+      display: "flex", flexDirection: "column", padding: "28px 22px",
+    }}>
+      {/* Mark */}
+      <div style={{ marginBottom: "44px" }}>
+        <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: T.ink, marginBottom: "14px" }} />
+        <div style={{ ...serifStyle(15) }}>
+          <MixedWord text="Archive" style={{}} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+        <button onClick={() => onChange("home")} style={item("home")}>Home</button>
+        <button onClick={() => onChange("cafe")} style={item("cafe")}>Cafe</button>
+        <button onClick={() => onChange("recipe")} style={item("recipe")}>Recipe</button>
+
+        <div>
+          <button
+            onClick={() => { onChange("archive"); setArchiveOpen(p => !p) }}
+            style={{ ...item("archive"), display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
+            Archive <span style={{ fontSize: "7px", opacity: 0.5 }}>{archiveOpen ? "–" : "+"}</span>
           </button>
           <AnimatePresence>
             {archiveOpen && (
-              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.14 }}
-                style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", paddingTop: "12px" }}>
-                <div style={{ background: T.card, border: T.hairline, minWidth: "120px", boxShadow: "0 8px 24px rgba(20,18,15,0.08)" }}>
-                  {["Coffee", "Cafe", "Beans"].map((tab, i, arr) => (
-                    <button key={tab}
-                      onClick={() => { onChange("archive"); onArchiveTab(tab); setArchiveOpen(false) }}
-                      style={{ display: "block", width: "100%", textAlign: "center", padding: "11px 16px", ...MONO, fontSize: "8px", color: archiveTab === tab && active === "archive" ? T.ink : T.faint, background: "none", border: "none", borderBottom: i < arr.length - 1 ? T.hairline : "none", cursor: "pointer" }}
+              <motion.div
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+                style={{ overflow: "hidden" }}
+              >
+                <div style={{ paddingTop: "14px", paddingLeft: "12px", borderLeft: T.hairline, marginLeft: "1px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {["Coffee", "Cafe", "Beans"].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => { onChange("archive"); onArchiveTab(tab) }}
+                      style={{
+                        ...item("archive", true),
+                        color: active === "archive" && archiveTab === tab ? T.ink : T.faint,
+                      }}
                     >{tab}</button>
                   ))}
                 </div>
@@ -1455,6 +1628,10 @@ function TopNav({ active, archiveTab, onChange, onArchiveTab }) {
             )}
           </AnimatePresence>
         </div>
+      </div>
+
+      <div style={{ marginTop: "auto", ...MONO, fontSize: "7px", color: T.ghost, lineHeight: 1.8 }}>
+        Specialty<br />Coffee<br />Archive
       </div>
     </nav>
   )
@@ -1466,29 +1643,26 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
   const [selected, setSelected] = useState(null)
   const [showAddBean, setShowAddBean] = useState(false)
   const [editingBean, setEditingBean] = useState(null)
-  const [greeting, setGreeting] = useState("Good evening")
+  const [greeting, setGreeting] = useState("")
   const [today, setToday] = useState("")
 
+  // Set on mount so server and client don't disagree on the date.
   useEffect(() => {
     const now = new Date()
-    const h = now.getHours()
-    if (h >= 6 && h < 12) setGreeting("Good morning")
-    else if (h >= 12 && h < 18) setGreeting("Good afternoon")
+    setGreeting(greetingForToday(now))
     setToday(now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }))
   }, [])
 
   return (
     <>
-      <div style={{ paddingTop: "36px" }}>
-        {/* Tight header */}
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "24px" }}>
+      <div style={{ paddingTop: "30px" }}>
+        {/* Date leads — set large, it's the only chrome on this screen */}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: "26px", flexWrap: "wrap", gap: "12px" }}>
           <div>
-            <div style={{ ...label(8), marginBottom: "5px" }}>{today || "\u00a0"}</div>
-            <h1 style={{ ...serifStyle(24), fontStyle: "italic", margin: 0, color: T.sub }}>{greeting}.</h1>
+            <div style={{ ...serifStyle(30), lineHeight: 1.1 }}>{today || "\u00a0"}</div>
+            <div style={{ ...serifStyle(15, T.sub), fontStyle: "italic", marginTop: "10px", maxWidth: "420px" }}>{greeting || "\u00a0"}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "16px" }}>
-            <span style={label(8)}>Now Brewing · {beans.length}</span>
-          </div>
+          <span style={label(9)}>Now Brewing · {String(beans.length).padStart(2, "0")}</span>
         </div>
 
         {/* Bean grid — everything visible at once */}
@@ -1498,8 +1672,8 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "18px" }}>
-            {beans.map(bean => (
-              <BeanCard key={bean.id} bean={bean} onClick={() => setSelected(bean)} />
+            {beans.map((bean, i) => (
+              <BeanCard key={bean.id} bean={bean} index={i} onClick={() => setSelected({ bean, index: i })} />
             ))}
             {/* Add card */}
             <button
@@ -1518,8 +1692,9 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
       <AnimatePresence>
         {selected && (
           <BeanDetailModal
-            key={selected.id}
-            bean={selected}
+            key={selected.bean.id}
+            bean={selected.bean}
+            index={selected.index}
             recipes={recipes}
             onClose={() => setSelected(null)}
             onArchive={onArchive}
@@ -1663,9 +1838,9 @@ export default function Page() {
         input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 0.7; }
       `}</style>
 
-      <TopNav active={active} archiveTab={archiveTab} onChange={setActive} onArchiveTab={setArchiveTab} />
+      <SideNav active={active} archiveTab={archiveTab} onChange={setActive} onArchiveTab={setArchiveTab} />
 
-      <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 28px 80px" }}>
+      <main style={{ marginLeft: "168px", padding: "0 36px 80px", maxWidth: "1320px" }}>
         {active === "home" && (
           <HomeView
             beans={activeBeans}

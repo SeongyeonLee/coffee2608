@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { CSSProperties } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -292,8 +292,10 @@ function hexA(hex, alpha) {
 // ─── SEEDED GENERATIVE LABEL ART ──────────────────────────────────────────────
 // Each bean gets a unique abstract artwork, generated deterministically from
 // its id + tasting-note palette. Same bean → same art, every time.
-// Four styles, cycled by shelf position so neighbours never look alike:
-// 0 grainy gradient / 1 diagonal bands / 2 watercolor wash / 3 painted petals.
+// Five styles, cycled by shelf position so neighbours never look alike:
+// 0 gradient / 1 bands / 2 wash / 3 petals / 4 ink (near-black, high contrast).
+
+const INK_BLACK = "#141210"
 
 function hashStr(s) {
   let h = 1779033703
@@ -327,60 +329,64 @@ function lumOf(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
+/** How dark the roast reads, 0 = light, 1 = dark. Pulls the whole palette down. */
+function roastDepth(bean) {
+  const p = String(bean.roastPoint || "").toLowerCase()
+  if (/(dark|french|italian|full ?city\+)/.test(p)) return 0.5
+  if (/(medium ?dark|full ?city)/.test(p)) return 0.34
+  if (/(medium|city)/.test(p)) return 0.2
+  return 0.08
+}
+
 function beanArt(bean, index = null) {
   const seed = hashStr(String(bean.id) + String(bean.name || ""))
   const rnd = mulberry32(seed)
+  const depth = roastDepth(bean)
+
   let cols = [...new Set((bean.tastingNotes || []).map(noteColor))]
   if (cols.length === 0) cols = ["#C9C2B6", "#EAE6D8"]
   if (cols.length === 1) cols = [cols[0], mixHex(cols[0], "#FFFFFF", 0.45)]
-  const P = cols.slice(0, 4)
+  // Darker roasts pull every swatch toward charcoal — the cup gets deeper.
+  const P = cols.slice(0, 4).map(c => mixHex(c, INK_BLACK, depth * 0.4))
 
-  // Cycle styles by position so a shelf never shows the same look twice in a
-  // row. Falls back to the seed when there's no position (modals, thumbnails).
+  // Four styles, cycled by shelf position so neighbours never look alike.
   const style = index === null ? seed % 4 : index % 4
   const W = 420, H = 540
   let inner = ""
 
   if (style === 0) {
-    // Grainy multi-stop gradient
     const ang = Math.floor(rnd() * 360)
     const stops = P.map((c, i) => `<stop offset="${Math.round((i / Math.max(1, P.length - 1)) * 100)}%" stop-color="${c}"/>`).join("")
     inner = `<defs><linearGradient id="lg" gradientTransform="rotate(${ang} 0.5 0.5)">${stops}</linearGradient></defs>` +
       `<rect width="${W}" height="${H}" fill="url(#lg)"/>` +
       `<circle cx="${rnd() * W}" cy="${rnd() * H}" r="${160 + rnd() * 130}" fill="#ffffff" opacity="0.16" filter="url(#blur)"/>`
   } else if (style === 1) {
-    // Bold diagonal bands
     inner = `<rect width="${W}" height="${H}" fill="${P[0]}"/>`
     const n = 3 + Math.floor(rnd() * 2)
+    const blackAt = Math.floor(rnd() * n)  // one band is always ink
     for (let i = 0; i < n; i++) {
-      const c = P[(i + 1) % P.length]
+      const c = i === blackAt ? INK_BLACK : P[(i + 1) % P.length]
       const y = rnd() * H
       const h = 70 + rnd() * 150
       const rot = rnd() * 56 - 28
       inner += `<rect x="-120" y="${y}" width="${W + 240}" height="${h}" fill="${c}" transform="rotate(${rot.toFixed(1)} ${W / 2} ${y.toFixed(1)})"/>`
     }
   } else if (style === 2) {
-    // Watercolor wash on paper
-    inner = `<rect width="${W}" height="${H}" fill="#F2EFE7"/>`
+    inner = `<rect width="${W}" height="${H}" fill="${mixHex("#F2EFE7", INK_BLACK, depth * 0.3)}"/>`
     const n = 4 + Math.floor(rnd() * 3)
     for (let i = 0; i < n; i++) {
       const c = P[i % P.length]
       inner += `<ellipse cx="${(rnd() * W).toFixed(1)}" cy="${(rnd() * H).toFixed(1)}" rx="${(100 + rnd() * 140).toFixed(1)}" ry="${(90 + rnd() * 130).toFixed(1)}" fill="${c}" opacity="${(0.32 + rnd() * 0.3).toFixed(2)}" filter="url(#blur)"/>`
     }
-  } else {
-    // Soft-focus painted petals (ref: Hocus Pocus Roasters).
-    // Broad overlapping brush sweeps, heavily blurred, on a pale ground.
-    const pale = mixHex(P[0], "#FFFFFF", 0.72)
+  } else if (style === 3) {
+    const pale = mixHex(P[0], "#FFFFFF", 0.72 - depth * 0.35)
     inner = `<rect width="${W}" height="${H}" fill="${pale}"/>`
     const n = 5 + Math.floor(rnd() * 3)
     for (let i = 0; i < n; i++) {
       const c = P[i % P.length]
-      const cx = rnd() * W
-      const cy = rnd() * H
-      const rx = 130 + rnd() * 170
-      const ry = 60 + rnd() * 90
+      const cx = rnd() * W, cy = rnd() * H
+      const rx = 130 + rnd() * 170, ry = 60 + rnd() * 90
       const rot = rnd() * 180
-      // Each "petal" is a wide soft ellipse with a lighter highlight edge.
       inner += `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${rx.toFixed(1)}" ry="${ry.toFixed(1)}" fill="${c}" opacity="${(0.5 + rnd() * 0.3).toFixed(2)}" transform="rotate(${rot.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" filter="url(#soft)"/>`
       inner += `<ellipse cx="${(cx + rx * 0.18).toFixed(1)}" cy="${(cy - ry * 0.3).toFixed(1)}" rx="${(rx * 0.6).toFixed(1)}" ry="${(ry * 0.5).toFixed(1)}" fill="${mixHex(c, "#FFFFFF", 0.55)}" opacity="0.5" transform="rotate(${rot.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" filter="url(#soft)"/>`
     }
@@ -390,19 +396,30 @@ function beanArt(bean, index = null) {
   return { uri: `url("data:image/svg+xml,${encodeURIComponent(svg)}")`, style, palette: P }
 }
 
-/** Text color that reads on a given artwork. */
-function artInk(art) {
-  const avg = art.palette.reduce((s, c) => s + lumOf(c), 0) / art.palette.length
-  const adjusted = (art.style === 2 || art.style === 3) ? avg * 0.35 + 0.93 * 0.65 : avg
-  return adjusted > 0.6 ? "#17140F" : "#FBFAF7"
-}
+/**
+ * Card type is always dark now. Rather than flipping the ink to white on
+ * darker art, we lay a light scrim under the text zone so one consistent
+ * colour works everywhere — far easier to read, and calmer across a shelf.
+ */
+const CARD_INK = "#141210"        // headline info: country, farm, variety…
+const CARD_INK_SOFT = "#4A453E"   // secondary line
+const CARD_INK_FAINT = "#6E675E"  // tasting notes, kept light on purpose
 
 const GRAIN = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
 
 function titleCaseWords(s) {
+  // Keep acronyms and codes intact (SL28, AA, AB, G1) — only fix plain words.
   return String(s || "")
-    .toLowerCase()
-    .replace(/(^|[\s\-·/])([a-z])/g, (_, pre, ch) => pre + ch.toUpperCase())
+    .split(/(\s+|·|\/)/)
+    .map(tok => {
+      if (!/[a-zA-Z]/.test(tok)) return tok
+      // Short all-caps tokens are codes (AA, G1, SL); long ones are just
+      // shouting (KENYA) and should be normalised.
+      if (/^[A-Z0-9#.\-]+$/.test(tok) && tok.length <= 4) return tok
+      if (/\d/.test(tok)) return tok.toUpperCase()          // e.g. sl28 → SL28
+      return tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase()
+    })
+    .join("")
 }
 
 /**
@@ -436,40 +453,38 @@ function MixedWord({ text, style }) {
 const GREETINGS = [
   "First cup decides the day.",
   "Grind fine, live coarse.",
-  "Water is 98% of the cup. Be humble.",
+  "Water is 98% of it. Be humble.",
   "No such thing as too early.",
   "Bloom now, panic later.",
-  "The bed should be flat. So should your ego.",
+  "Flat bed, flat ego.",
   "Chase the aroma, not the clock.",
-  "A bad brew is just a rough draft.",
-  "Somewhere a farmer woke up before you.",
+  "A bad brew is a rough draft.",
+  "A farmer woke up before you.",
   "Slow pour, fast morning.",
   "Today's variable: everything.",
   "Taste it before you fix it.",
-  "The kettle is patient. Be likewise.",
-  "Sweetness lives just past the panic.",
+  "The kettle is patient.",
+  "Sweetness lives past the panic.",
   "Two grams changes everything.",
   "Drink it while it's honest.",
   "Cold coffee tells the truth.",
-  "Your palate is a muscle. Use it.",
+  "Your palate is a muscle.",
   "Overextracted is just enthusiasm.",
-  "Slight underdose, generous mood.",
   "Every bag is a countdown.",
   "Roast dates are a love language.",
   "You can't rush the bloom.",
-  "Notes are a rumor until you taste them.",
-  "The best recipe is the one you repeat.",
+  "Notes are a rumor until you taste.",
+  "The best recipe is the repeated one.",
   "Consistency beats brilliance.",
   "Wake the beans gently.",
   "Small batch, whole heart.",
   "Acidity is not an insult.",
   "Let it cool. It gets better.",
   "The grinder knows what you did.",
-  "Coffee is a deadline with a smell.",
+  "A deadline with a smell.",
   "Measure twice, drink once.",
   "Beans travel far. Respect the trip.",
-  "You are 20% water and 80% intention.",
-  "Nothing good was ever brewed in a hurry.",
+  "Nothing good was brewed in a hurry.",
   "Log it or it never happened.",
   "The scale doesn't lie. You might.",
   "Filter coffee, unfiltered thoughts.",
@@ -479,35 +494,36 @@ const GREETINGS = [
   "Some mornings need a dark one.",
   "Stir gently, think loudly.",
   "Altitude builds character.",
-  "Fermentation is just patience with a deadline.",
   "The pour is the meditation.",
   "One more click finer.",
   "Good beans forgive small mistakes.",
   "Steam rises. So can you.",
-  "Drink the good stuff on ordinary days.",
+  "Drink the good stuff on plain days.",
   "Fresh is a fleeting condition.",
   "Brew like someone's watching.",
   "Begin. The water's ready.",
+  "Under is worse than over.",
+  "Patience tastes like sugar.",
+  "You are what you steep.",
 ]
 
-/** Same greeting all day, different tomorrow. */
-function greetingForToday(d = new Date()) {
-  const dayKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
-  return GREETINGS[hashStr(dayKey) % GREETINGS.length]
+/** A fresh line on every visit. Picked on the client so SSR can't fix it. */
+function randomGreeting() {
+  return GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 }
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 
 const T = {
-  paper: "#EFEDE7",
-  card: "#FBFAF7",
-  ink: "#14120F",
-  sub: "rgba(20,18,15,0.62)",
-  faint: "rgba(20,18,15,0.38)",
-  ghost: "rgba(20,18,15,0.16)",
-  line: "rgba(20,18,15,0.12)",
-  hairline: "1px solid rgba(20,18,15,0.12)",
-  star: "#C98F4A",
+  paper: "#EBE9E3",
+  card: "#F7F6F2",
+  ink: "#0D0C0A",
+  sub: "rgba(13,12,10,0.66)",
+  faint: "rgba(13,12,10,0.42)",
+  ghost: "rgba(13,12,10,0.18)",
+  line: "rgba(13,12,10,0.18)",
+  hairline: "1px solid rgba(13,12,10,0.18)",
+  star: "#0D0C0A",
 }
 
 const MONO: CSSProperties = {
@@ -578,7 +594,7 @@ function Stars({ value, onChange = undefined, size = 22, readOnly = false }) {
           type="button"
           disabled={readOnly}
           onClick={() => onChange && onChange(n)}
-          style={{ background: "none", border: "none", cursor: readOnly ? "default" : "pointer", fontSize: `${size}px`, lineHeight: 1, padding: 0, color: n <= (value || 0) ? T.star : T.ghost, transition: "color 0.15s" }}
+          style={{ background: "none", border: "none", cursor: readOnly ? "default" : "pointer", fontSize: `${size}px`, lineHeight: 1, padding: 0, color: n <= (value || 0) ? T.ink : "rgba(13,12,10,0.18)", transition: "color 0.15s" }}
         >★</button>
       ))}
     </div>
@@ -733,7 +749,7 @@ function AddBeanModal({ onClose, onSave, existing = null }) {
   return (
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}
-        style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(20,18,15,0.45)", backdropFilter: "blur(6px)" }} />
+        style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(13,12,10,0.55)", backdropFilter: "blur(6px)" }} />
       <div style={{ position: "fixed", inset: 0, zIndex: 151, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", pointerEvents: "none" }}>
         <motion.div
           initial={{ opacity: 0, y: 16, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.99 }}
@@ -971,7 +987,7 @@ function RecordForm({ bean, recipes, onClose, onLogged }) {
             <div>
               <span style={FORM.label}>Remaining after this brew</span>
               <div style={{ height: "42px", display: "flex", alignItems: "center", gap: "10px", borderBottom: T.hairline }}>
-                <div style={{ flex: 1, height: "2px", background: "rgba(20,18,15,0.1)" }}>
+                <div style={{ flex: 1, height: "2px", background: "rgba(13,12,10,0.14)" }}>
                   <div style={{ height: "2px", width: `${nextRemaining}%`, background: T.ink, transition: "width 0.3s" }} />
                 </div>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px", color: pctUsed > 0 ? T.ink : T.faint }}>
@@ -1016,9 +1032,6 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
   const dday = getRoastDDay(bean.roastDate)
   const roasted = new Date(bean.roastDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
   const art = beanArt(bean, index)
-  const ink = artInk(art)
-  const light = ink !== "#17140F"
-  const artSub = light ? "rgba(251,250,247,0.72)" : "rgba(23,20,15,0.65)"
 
   useEffect(() => {
     const h = e => e.key === "Escape" && (showRecord ? setShowRecord(false) : onClose())
@@ -1034,14 +1047,18 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
     <>
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        transition={{ duration: 0.3 }}
+        transition={{ duration: 0.18 }}
         style={{ position: "fixed", inset: 0, zIndex: 100, background: T.paper }}
       />
 
-      <div style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", flexDirection: "column" }}>
+      <motion.div
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.12 }}
+        style={{ position: "fixed", inset: 0, zIndex: 101, display: "flex", flexDirection: "column" }}
+      >
         {/* Header rail */}
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25, delay: 0.18 }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: 0.1 }}
           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 28px", borderBottom: T.hairline, flexShrink: 0 }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
@@ -1055,7 +1072,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
         <div style={{ flex: 1, display: "grid", gridTemplateColumns: "minmax(200px, 1fr) minmax(320px, 1.5fr) minmax(280px, 1.1fr)", minHeight: 0 }}>
           {/* Left — origin headline + collection meta */}
           <motion.div
-            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: 0.2 }}
+            initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.24, delay: 0.1 }}
             style={{ padding: "36px 28px", borderRight: T.hairline, display: "flex", flexDirection: "column", overflowY: "auto" }}
           >
             <div style={{ ...label(8), marginBottom: "10px" }}>Origin</div>
@@ -1078,7 +1095,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
             <div style={{ marginTop: "auto", paddingTop: "24px" }}>
               <div style={{ ...label(8), marginBottom: "10px" }}>Remaining</div>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{ flex: 1, height: "2px", background: "rgba(20,18,15,0.1)" }}>
+                <div style={{ flex: 1, height: "2px", background: "rgba(13,12,10,0.14)" }}>
                   <motion.div initial={{ width: 0 }} animate={{ width: `${bean.remaining}%` }} transition={{ delay: 0.25, duration: 0.8 }} style={{ height: "2px", background: T.ink }} />
                 </div>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" }}>{bean.remaining}%</span>
@@ -1090,7 +1107,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "36px", position: "relative", overflow: "hidden" }}>
             <motion.div
               layoutId={`bean-card-${bean.id}`}
-              transition={{ type: "spring", stiffness: 220, damping: 30 }}
+              transition={{ type: "spring", stiffness: 320, damping: 34 }}
               style={{
                 position: "relative", height: "100%", width: "auto",
                 aspectRatio: "3/4", margin: "0 auto",
@@ -1105,7 +1122,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
 
           {/* Right — technical profile + actions */}
           <motion.div
-            initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: 0.2 }}
+            initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.24, delay: 0.1 }}
             style={{ borderLeft: T.hairline, display: "flex", flexDirection: "column", minHeight: 0 }}
           >
             <div style={{ flex: 1, overflowY: "auto", padding: "36px 28px" }}>
@@ -1186,7 +1203,7 @@ function BeanDetailModal({ bean, recipes, index, onClose, onArchive, onEdit, onL
           </motion.div>
         </div>
 
-      </div>
+      </motion.div>
 
       <AnimatePresence>
         {showRecord && (
@@ -1209,10 +1226,6 @@ function BeanCard({ bean, index, onClick }) {
   const isBlend = bean.beanType === "blend"
   const dday = getRoastDDay(bean.roastDate)
   const art = beanArt(bean, index)
-  const ink = artInk(art)
-  const light = ink !== "#17140F"
-  const sub = light ? "rgba(251,250,247,0.78)" : "rgba(23,20,15,0.72)"
-  const faint = light ? "rgba(251,250,247,0.55)" : "rgba(23,20,15,0.5)"
   const hero = isBlend ? (bean.blendName || bean.name) : (bean.origin || bean.name)
 
   return (
@@ -1231,24 +1244,22 @@ function BeanCard({ bean, index, onClick }) {
         backgroundImage: art.uri,
         backgroundSize: "cover",
         backgroundPosition: "center",
-        border: hovered ? "1px solid rgba(20,18,15,0.4)" : T.hairline,
-        boxShadow: hovered ? "0 14px 36px rgba(20,18,15,0.14)" : "0 2px 10px rgba(20,18,15,0.05)",
+        border: hovered ? "1px solid rgba(13,12,10,0.55)" : T.hairline,
+        boxShadow: hovered ? "0 14px 36px rgba(20,18,15,0.14)" : "0 2px 10px rgba(13,12,10,0.07)",
         transition: "border-color 0.2s, box-shadow 0.25s",
         willChange: "transform", backfaceVisibility: "hidden",
       }}
     >
       {/* Film grain */}
       <div style={{ position: "absolute", inset: 0, backgroundImage: GRAIN, backgroundSize: "140px", opacity: 0.14, mixBlendMode: "multiply", pointerEvents: "none" }} />
-      {/* Readability scrim toward the text zone */}
-      <div style={{ position: "absolute", inset: 0, background: light
-        ? "linear-gradient(to top, rgba(10,8,6,0.42) 0%, rgba(10,8,6,0.08) 45%, transparent 70%)"
-        : "linear-gradient(to top, rgba(251,250,247,0.5) 0%, rgba(251,250,247,0.1) 45%, transparent 70%)",
-        pointerEvents: "none" }} />
+      {/* Light scrim so the dark type reads on any artwork */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+        background: "linear-gradient(to top, rgba(243,241,236,0.92) 0%, rgba(243,241,236,0.72) 34%, rgba(243,241,236,0.16) 62%, transparent 82%)" }} />
 
       {/* Top row */}
       <div style={{ position: "absolute", top: "16px", left: "18px", right: "18px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={{ ...MONO, fontSize: "8px", color: sub }}>{isBlend ? "Blend" : "Single Origin"}</span>
-        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: faint }}>D+{dday}</span>
+        <span style={{ ...MONO, fontSize: "8px", color: CARD_INK_SOFT }}>{isBlend ? "Blend" : "Single Origin"}</span>
+        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: CARD_INK_SOFT }}>D+{dday}</span>
       </div>
 
       {/* Text block — fades out during the expand so it never stretches */}
@@ -1256,25 +1267,25 @@ function BeanCard({ bean, index, onClick }) {
         <div style={{ marginBottom: "8px" }}>
           <MixedWord
             text={hero}
-            style={{ ...serifStyle(34, ink), letterSpacing: "-0.01em", wordBreak: "break-word" }}
+            style={{ ...serifStyle(34, CARD_INK), letterSpacing: "-0.01em", wordBreak: "break-word" }}
           />
         </div>
         {isBlend ? (
           (bean.components || []).slice(0, 3).map((c, i) => (
-            <div key={i} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: sub, marginBottom: "3px" }}>
+            <div key={i} style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: CARD_INK_SOFT, marginBottom: "3px" }}>
               {formatBlendComponentLine(c)}
             </div>
           ))
         ) : (
           <>
-            {bean.farm && <div style={{ ...serifStyle(15, sub) }}>{formatRegionFarm(bean.farm)}</div>}
-            <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: faint, marginTop: "5px", letterSpacing: "0.06em" }}>
+            {bean.farm && <div style={{ ...serifStyle(15, CARD_INK_SOFT) }}>{formatRegionFarm(bean.farm)}</div>}
+            <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10px", color: CARD_INK_SOFT, marginTop: "5px", letterSpacing: "0.06em" }}>
               {[bean.variety, bean.process, bean.roastPoint].filter(Boolean).join(" · ")}
             </div>
           </>
         )}
         {bean.tastingNotes.length > 0 && (
-          <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: faint, marginTop: "8px", lineHeight: 1.6 }}>
+          <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "9px", color: CARD_INK_FAINT, marginTop: "8px", lineHeight: 1.6 }}>
             {bean.tastingNotes.slice(0, 4).join(" · ")}
           </div>
         )}
@@ -1282,10 +1293,10 @@ function BeanCard({ bean, index, onClick }) {
 
       {/* Remaining line */}
       <div style={{ position: "absolute", left: "18px", right: "18px", bottom: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{ flex: 1, height: "1px", background: light ? "rgba(251,250,247,0.25)" : "rgba(23,20,15,0.18)" }}>
-          <div style={{ height: "1px", width: `${bean.remaining}%`, background: ink }} />
+        <div style={{ flex: 1, height: "1px", background: "rgba(20,18,15,0.22)" }}>
+          <div style={{ height: "1px", width: `${bean.remaining}%`, background: CARD_INK }} />
         </div>
-        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "8px", color: faint }}>{bean.remaining}%</span>
+        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "8px", color: CARD_INK_SOFT }}>{bean.remaining}%</span>
       </div>
     </motion.article>
   )
@@ -1382,7 +1393,7 @@ function RecipeView({ recipes, beans, onSave }) {
   const beanName = id => beans.find(b => b.id === id)?.name || ""
 
   return (
-    <div style={{ paddingTop: "40px" }}>
+    <div style={{ paddingTop: "76px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "28px" }}>
         <div>
           <div style={{ ...label(8), marginBottom: "8px" }}>Recipe</div>
@@ -1454,7 +1465,7 @@ function RecipeView({ recipes, beans, onSave }) {
 
 function BeanArchiveView({ beans }) {
   return (
-    <div style={{ paddingTop: "40px" }}>
+    <div style={{ paddingTop: "76px" }}>
       <div style={{ ...label(8), marginBottom: "8px" }}>Archive / Beans</div>
       <h2 style={{ ...serifStyle(32), margin: "0 0 28px", fontStyle: "italic" }}>Bean Archive</h2>
 
@@ -1484,6 +1495,418 @@ function BeanArchiveView({ beans }) {
   )
 }
 
+// ─── STATS: DATA ──────────────────────────────────────────────────────────────
+
+/** Coordinates for the coffee belt. Used by the map view. */
+const COUNTRY_COORDS = {
+  ethiopia: [9.1, 40.5], kenya: [0.0, 37.9], rwanda: [-1.9, 29.9], burundi: [-3.4, 29.9],
+  tanzania: [-6.4, 34.9], uganda: [1.4, 32.3], "congo": [-4.0, 21.8], zambia: [-13.1, 27.8],
+  malawi: [-13.3, 34.3], yemen: [15.6, 48.5], india: [20.6, 79.0], indonesia: [-2.5, 118.0],
+  "papua new guinea": [-6.3, 143.9], vietnam: [14.1, 108.3], thailand: [15.9, 101.0],
+  laos: [19.9, 102.5], myanmar: [21.9, 95.9], china: [24.5, 101.0], philippines: [12.9, 121.8],
+  timor: [-8.9, 125.7], "east timor": [-8.9, 125.7],
+  colombia: [4.6, -74.1], brazil: [-14.2, -51.9], peru: [-9.2, -75.0], ecuador: [-1.8, -78.2],
+  bolivia: [-16.3, -63.6], venezuela: [6.4, -66.6],
+  panama: [8.5, -80.8], "costa rica": [9.7, -83.8], guatemala: [15.8, -90.2],
+  honduras: [15.2, -86.2], "el salvador": [13.8, -88.9], nicaragua: [12.9, -85.2],
+  mexico: [23.6, -102.5], jamaica: [18.1, -77.3], "dominican republic": [18.7, -70.2],
+  haiti: [19.0, -72.3], cuba: [21.5, -77.8], hawaii: [19.9, -155.6],
+}
+
+function coordsFor(country) {
+  const k = String(country || "").toLowerCase().trim()
+  if (COUNTRY_COORDS[k]) return COUNTRY_COORDS[k]
+  const hit = Object.keys(COUNTRY_COORDS).find(c => k.includes(c) || c.includes(k))
+  return hit ? COUNTRY_COORDS[hit] : null
+}
+
+/**
+ * Ethiopian coffee is mostly regional landrace material that gets recorded
+ * under dozens of names — JARC selections (74110, 74158, 74112…), "Heirloom",
+ * "Wild Forest", local cultivar names. Counting those separately shatters the
+ * stats into meaningless singletons, so they roll up to one label. Named
+ * varieties that happen to grow in Ethiopia (Gesha, SL28, Bourbon…) are
+ * deliberately left alone.
+ */
+const ETHIOPIAN_LANDRACE = "Ethiopian Landrace"
+
+const NAMED_VARIETIES = [
+  "gesha", "geisha", "sl28", "sl34", "sl-28", "sl-34", "bourbon", "typica",
+  "caturra", "catuai", "castillo", "pacamara", "maragogipe", "mundo novo",
+  "pink bourbon", "java", "sidra", "wush wush", "ruiru", "batian", "k7",
+]
+
+function normalizeVariety(v) {
+  const raw = String(v || "").trim()
+  if (!raw) return ""
+  const s = raw.toLowerCase()
+
+  // Leave clearly-named cultivars as they are.
+  if (NAMED_VARIETIES.some(n => s.includes(n))) return titleCaseWords(raw)
+
+  // JARC / research selections: bare numbers like 74110, 74158, 74112, 74165.
+  if (/^\d{4,6}[a-z]?$/.test(s)) return ETHIOPIAN_LANDRACE
+  if (/\b(74\d{3}|75\d{3})\b/.test(s)) return ETHIOPIAN_LANDRACE
+
+  // The usual catch-all names.
+  if (/(heirloom|landrace|indigenous|wild forest|forest|local|ethiopian? (variety|varieties|cultivar)|mixed heirloom)/.test(s)) {
+    return ETHIOPIAN_LANDRACE
+  }
+
+  // Named local Ethiopian cultivars — still landrace material in practice.
+  if (/^(kurume|dega|wolisho|serto|bishari|mikicho|sawa)\b/.test(s)) {
+    return ETHIOPIAN_LANDRACE
+  }
+
+  return titleCaseWords(raw)
+}
+
+/** Tally beans by a field, biggest first. */
+function tally(beans, pick, normalize = titleCaseWords) {
+  const m = new Map()
+  beans.forEach(b => {
+    const raw = pick(b)
+    if (!raw) return
+    String(raw).split(/\s*[·,/]\s*/).map(s => s.trim()).filter(Boolean).forEach(key => {
+      const label = normalize(key)
+      if (!label) return
+      const cur = m.get(label) || { label, count: 0, beans: [] }
+      cur.count += 1
+      cur.beans.push(b)
+      m.set(label, cur)
+    })
+  })
+  return [...m.values()].sort((a, b) => b.count - a.count)
+}
+
+/** Stable greyscale-to-ink ramp so charts stay monochrome and calm. */
+function rampColor(i, total) {
+  const t = total <= 1 ? 0 : i / (total - 1)
+  return mixHex(INK_BLACK, "#C9C2B6", t * 0.82)
+}
+
+// ─── STATS: DONUT ─────────────────────────────────────────────────────────────
+
+function Donut({ data, size = 190, stroke = 7, activeLabel, onHover }) {
+  const total = data.reduce((s, d) => s + d.count, 0) || 1
+  const r = (size - stroke) / 2
+  const C = 2 * Math.PI * r
+  let offset = 0
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block" }}>
+      <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+        {data.map((d, i) => {
+          const frac = d.count / total
+          const len = frac * C
+          const dim = activeLabel && activeLabel !== d.label
+          const seg = (
+            <circle
+              key={d.label}
+              cx={size / 2} cy={size / 2} r={r}
+              fill="none"
+              stroke={rampColor(i, data.length)}
+              strokeWidth={activeLabel === d.label ? stroke + 3 : stroke}
+              strokeDasharray={`${Math.max(0, len - 2)} ${C - Math.max(0, len - 2)}`}
+              strokeDashoffset={-offset}
+              opacity={dim ? 0.25 : 1}
+              style={{ transition: "opacity 0.2s, stroke-width 0.2s", cursor: "pointer" }}
+              onMouseEnter={() => onHover && onHover(d.label)}
+              onMouseLeave={() => onHover && onHover(null)}
+            />
+          )
+          offset += len
+          return seg
+        })}
+      </g>
+    </svg>
+  )
+}
+
+function DonutPanel({ title, data, onOpen }) {
+  const [hover, setHover] = useState(null)
+  const active = data.find(d => d.label === hover)
+  const total = data.reduce((s, d) => s + d.count, 0)
+
+  return (
+    <button
+      onClick={onOpen}
+      style={{
+        border: T.hairline, background: T.card, padding: "26px 22px 22px",
+        cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column",
+        alignItems: "center", gap: "18px", transition: "border-color 0.2s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(13,12,10,0.55)" }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,12,10,0.18)" }}
+    >
+      <div style={{ ...label(8), alignSelf: "flex-start" }}>{title}</div>
+
+      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Donut data={data} activeLabel={hover} onHover={setHover} />
+        <div style={{ position: "absolute", textAlign: "center", pointerEvents: "none", maxWidth: "120px" }}>
+          <div style={{ ...serifStyle(active ? 15 : 30) }}>
+            {active ? active.label : data.length}
+          </div>
+          <div style={{ ...MONO, fontSize: "7px", color: T.faint, marginTop: "4px" }}>
+            {active ? `${active.count} of ${total}` : "distinct"}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...MONO, fontSize: "7px", color: T.faint, alignSelf: "flex-start" }}>
+        View all →
+      </div>
+    </button>
+  )
+}
+
+// ─── STATS: WORLD MAP (countries) ─────────────────────────────────────────────
+
+function WorldMap({ data }) {
+  const [hover, setHover] = useState(null)
+  const W = 900, H = 440
+  // Equirectangular, cropped to the coffee belt so the dots aren't lost.
+  const LAT0 = 40, LAT1 = -30, LON0 = -120, LON1 = 160
+  const px = lon => ((lon - LON0) / (LON1 - LON0)) * W
+  const py = lat => ((LAT0 - lat) / (LAT0 - LAT1)) * H
+
+  const pts = data
+    .map(d => ({ ...d, c: coordsFor(d.label) }))
+    .filter(d => d.c)
+  const missing = data.filter(d => !coordsFor(d.label))
+  const max = Math.max(...pts.map(p => p.count), 1)
+
+  return (
+    <div>
+      <div style={{ border: T.hairline, background: T.card, position: "relative", overflow: "hidden" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
+          {/* Graticule — the only "map" there is. Keeps it abstract and light. */}
+          {[...Array(8)].map((_, i) => (
+            <line key={`h${i}`} x1={0} x2={W} y1={(H / 7) * i} y2={(H / 7) * i}
+              stroke="rgba(13,12,10,0.1)" strokeWidth="1" />
+          ))}
+          {[...Array(13)].map((_, i) => (
+            <line key={`v${i}`} y1={0} y2={H} x1={(W / 12) * i} x2={(W / 12) * i}
+              stroke="rgba(13,12,10,0.1)" strokeWidth="1" />
+          ))}
+          {/* Equator + tropics: the coffee belt made literal */}
+          <line x1={0} x2={W} y1={py(0)} y2={py(0)} stroke="rgba(13,12,10,0.3)" strokeWidth="1" />
+          <line x1={0} x2={W} y1={py(23.5)} y2={py(23.5)} stroke="rgba(13,12,10,0.18)" strokeDasharray="3 5" strokeWidth="1" />
+          <line x1={0} x2={W} y1={py(-23.5)} y2={py(-23.5)} stroke="rgba(13,12,10,0.18)" strokeDasharray="3 5" strokeWidth="1" />
+          <text x={8} y={py(0) - 7} style={{ ...MONO, fontSize: "8px" }} fill={T.faint}>Equator</text>
+
+          {pts.map((p, i) => {
+            const x = px(p.c[1]), y = py(p.c[0])
+            const rr = 5 + (p.count / max) * 16
+            const on = hover === p.label
+            return (
+              <g key={p.label}
+                onMouseEnter={() => setHover(p.label)}
+                onMouseLeave={() => setHover(null)}
+                style={{ cursor: "pointer" }}>
+                <circle cx={x} cy={y} r={rr + 10} fill="transparent" />
+                <circle cx={x} cy={y} r={rr} fill={INK_BLACK} opacity={on ? 0.92 : 0.62}
+                  style={{ transition: "opacity 0.2s, r 0.2s" }} />
+                <circle cx={x} cy={y} r={rr + 7} fill="none" stroke={INK_BLACK}
+                  strokeWidth="1" opacity={on ? 0.5 : 0} style={{ transition: "opacity 0.2s" }} />
+                <text x={x} y={y - rr - 9} textAnchor="middle"
+                  style={{ ...MONO, fontSize: "8px" }} fill={T.ink} opacity={on ? 1 : 0}>
+                  {p.label} · {p.count}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+
+      {/* Ranked list beneath, doubles as the legend */}
+      <div style={{ marginTop: "22px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "0 28px" }}>
+        {data.map((d, i) => (
+          <div key={d.label}
+            onMouseEnter={() => setHover(d.label)}
+            onMouseLeave={() => setHover(null)}
+            style={{ display: "flex", alignItems: "baseline", gap: "10px", padding: "9px 0", borderBottom: T.hairline, opacity: hover && hover !== d.label ? 0.4 : 1, transition: "opacity 0.2s" }}>
+            <span style={{ ...MONO, fontSize: "7px", color: T.faint, width: "18px" }}>{String(i + 1).padStart(2, "0")}</span>
+            <span style={{ ...serifStyle(15), flex: 1 }}>{d.label}</span>
+            <span style={{ ...MONO, fontSize: "9px", color: T.sub }}>{d.count}</span>
+          </div>
+        ))}
+      </div>
+
+      {missing.length > 0 && (
+        <div style={{ ...MONO, fontSize: "7px", color: T.ghost, marginTop: "16px" }}>
+          Not on the map: {missing.map(m => m.label).join(", ")}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── STATS: RUNNING INDEX (roasteries) ────────────────────────────────────────
+
+function RunningIndex({ data }) {
+  const [hover, setHover] = useState(null)
+  return (
+    <div style={{ border: T.hairline, background: T.card, padding: "40px 34px" }}>
+      <p style={{ margin: 0, lineHeight: 1.5 }}>
+        {data.map((d, i) => (
+          <span key={d.label}
+            onMouseEnter={() => setHover(d.label)}
+            onMouseLeave={() => setHover(null)}
+            style={{ cursor: "default", opacity: hover && hover !== d.label ? 0.28 : 1, transition: "opacity 0.2s" }}>
+            <span style={{ ...serifStyle(30), letterSpacing: "-0.01em" }}>
+              {d.label}
+            </span>
+            <sup style={{ ...MONO, fontSize: "9px", color: T.sub, marginLeft: "4px", verticalAlign: "super" }}>
+              {String(d.count).padStart(2, "0")}
+            </sup>
+            {i < data.length - 1 && (
+              <span style={{ ...serifStyle(28, T.ghost), margin: "0 12px" }}>/</span>
+            )}
+          </span>
+        ))}
+      </p>
+
+      <AnimatePresence>
+        {hover && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{ marginTop: "32px", paddingTop: "20px", borderTop: T.hairline }}
+          >
+            <div style={{ ...label(8), marginBottom: "10px" }}>{hover}</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              {(data.find(d => d.label === hover)?.beans || []).map(b => (
+                <span key={b.id} style={{ ...MONO, fontSize: "9px", color: T.sub, border: T.hairline, padding: "5px 10px" }}>
+                  {b.origin} · {b.name}
+                </span>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ─── STATS: MOSAIC (varieties) ────────────────────────────────────────────────
+
+function Mosaic({ data }) {
+  const [hover, setHover] = useState(null)
+  // One tile per bean, grouped by variety — the shelf as a pixel field.
+  const tiles = []
+  data.forEach((d, gi) => d.beans.forEach(b => tiles.push({ ...b, group: d.label, gi })))
+
+  return (
+    <div>
+      <div style={{ border: T.hairline, background: T.card, padding: "28px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(52px, 1fr))", gap: "3px" }}>
+        {tiles.map((t, i) => {
+          const dim = hover && hover !== t.group
+          return (
+            <div
+              key={`${t.id}-${i}`}
+              onMouseEnter={() => setHover(t.group)}
+              onMouseLeave={() => setHover(null)}
+              title={`${t.group} · ${t.name}`}
+              style={{
+                aspectRatio: "1", backgroundImage: beanArt(t, t.gi).uri,
+                backgroundSize: "cover", backgroundPosition: "center",
+                opacity: dim ? 0.18 : 1, transition: "opacity 0.2s, transform 0.2s",
+                transform: hover === t.group ? "scale(1.06)" : "scale(1)",
+                cursor: "pointer",
+              }}
+            />
+          )
+        })}
+      </div>
+
+      <div style={{ marginTop: "22px", display: "flex", flexWrap: "wrap", gap: "0 26px" }}>
+        {data.map((d, i) => (
+          <div key={d.label}
+            onMouseEnter={() => setHover(d.label)}
+            onMouseLeave={() => setHover(null)}
+            style={{ display: "flex", alignItems: "baseline", gap: "9px", padding: "9px 0", opacity: hover && hover !== d.label ? 0.35 : 1, transition: "opacity 0.2s", cursor: "default" }}>
+            <span style={{ ...serifStyle(17) }}>{d.label}</span>
+            <span style={{ ...MONO, fontSize: "8px", color: T.faint }}>{String(d.count).padStart(2, "0")}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── STATS VIEW ───────────────────────────────────────────────────────────────
+
+function StatsView({ beans }) {
+  const [open, setOpen] = useState(null) // null | 'country' | 'roastery' | 'variety'
+
+  const byCountry = tally(beans.filter(b => b.beanType !== "blend"), b => b.origin)
+  const byRoastery = tally(beans, b => b.roaster)
+  const byVariety = tally(beans.filter(b => b.beanType !== "blend"), b => b.variety, normalizeVariety)
+
+  const panels = [
+    { id: "country", title: "By Origin", data: byCountry },
+    { id: "roastery", title: "By Roastery", data: byRoastery },
+    { id: "variety", title: "By Variety", data: byVariety },
+  ]
+  const current = panels.find(p => p.id === open)
+
+  if (beans.length === 0) {
+    return (
+      <div style={{ paddingTop: "76px" }}>
+        <div style={{ ...label(8), marginBottom: "8px" }}>Archive / Stats</div>
+        <h2 style={{ ...serifStyle(32), margin: "0 0 28px", fontStyle: "italic" }}>Nothing to count yet</h2>
+        <div style={{ border: T.hairline, padding: "48px", textAlign: "center" }}>
+          <div style={{ ...label(8, T.ghost) }}>Add a few beans first</div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ paddingTop: "76px" }}>
+      <div style={{ ...label(8), marginBottom: "8px" }}>Archive / Stats</div>
+      <h2 style={{ ...serifStyle(32), margin: "0 0 6px", fontStyle: "italic" }}>
+        {beans.length} bean{beans.length === 1 ? "" : "s"}, counted
+      </h2>
+      <p style={{ ...MONO, fontSize: "8px", color: T.faint, marginBottom: "32px" }}>
+        Active and archived together
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
+        {panels.map(p => (
+          <DonutPanel key={p.id} title={p.title} data={p.data} onOpen={() => setOpen(p.id)} />
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {current && (
+          <motion.div
+            key={current.id}
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28 }}
+            style={{ marginTop: "44px" }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "20px" }}>
+              <div>
+                <div style={{ ...label(8), marginBottom: "6px" }}>{current.title}</div>
+                <h3 style={{ ...serifStyle(24), margin: 0, fontStyle: "italic" }}>
+                  {current.id === "country" ? "Where it grew" : current.id === "roastery" ? "Who roasted it" : "What it was"}
+                </h3>
+              </div>
+              <button onClick={() => setOpen(null)} style={{ ...BTN.ghost, height: "32px" }}>Close</button>
+            </div>
+
+            {current.id === "country" && <WorldMap data={current.data} />}
+            {current.id === "roastery" && <RunningIndex data={current.data} />}
+            {current.id === "variety" && <Mosaic data={current.data} />}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // ─── COFFEE ARCHIVE (brew log) ────────────────────────────────────────────────
 
 function CoffeeArchiveView({ logs, loading, error, beans }) {
@@ -1493,7 +1916,7 @@ function CoffeeArchiveView({ logs, loading, error, beans }) {
   }
 
   return (
-    <div style={{ paddingTop: "40px" }}>
+    <div style={{ paddingTop: "76px" }}>
       <div style={{ ...label(8), marginBottom: "8px" }}>Archive / Coffee</div>
       <h2 style={{ ...serifStyle(32), margin: "0 0 28px", fontStyle: "italic" }}>Every cup, logged</h2>
 
@@ -1519,7 +1942,7 @@ function CoffeeArchiveView({ logs, loading, error, beans }) {
             const specs = [log.dose && `${String(log.dose).replace(/g$/, "")}g`, log.clicks && `${log.clicks} clicks`, log.waterTemp, log.dripper, log.totalTime].filter(Boolean)
             return (
               <div key={log.id || i} style={{ display: "flex", gap: "18px", padding: "20px 0", borderBottom: i < logs.length - 1 ? T.hairline : "none" }}>
-                <div style={{ width: "44px", height: "56px", flexShrink: 0, border: T.hairline, backgroundImage: art || "none", backgroundColor: art ? undefined : "rgba(20,18,15,0.05)", backgroundSize: "cover", backgroundPosition: "center" }} />
+                <div style={{ width: "44px", height: "56px", flexShrink: 0, border: T.hairline, backgroundImage: art || "none", backgroundColor: art ? undefined : "rgba(13,12,10,0.07)", backgroundSize: "cover", backgroundPosition: "center" }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "12px" }}>
                     <div style={{ ...serifStyle(17), fontStyle: "italic" }}>{log.beanName || "Unknown bean"}</div>
@@ -1548,7 +1971,7 @@ function CoffeeArchiveView({ logs, loading, error, beans }) {
 
 function PlaceholderView({ tag, title, desc }) {
   return (
-    <div style={{ paddingTop: "40px" }}>
+    <div style={{ paddingTop: "76px" }}>
       <div style={{ ...label(8), marginBottom: "8px" }}>{tag}</div>
       <h2 style={{ ...serifStyle(32), margin: "0 0 14px", fontStyle: "italic", maxWidth: "440px" }}>{title}</h2>
       <p style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: T.faint, lineHeight: 1.8, maxWidth: "340px" }}>{desc}</p>
@@ -1559,83 +1982,154 @@ function PlaceholderView({ tag, title, desc }) {
   )
 }
 
-// ─── SIDE NAV ─────────────────────────────────────────────────────────────────
+// ─── ONE-LINE HEADLINE ────────────────────────────────────────────────────────
+// Scales the type down until the whole phrase sits on a single row, so long
+// and short greetings both read as one deliberate line.
 
-function SideNav({ active, archiveTab, onChange, onArchiveTab }) {
-  const [archiveOpen, setArchiveOpen] = useState(active === "archive")
+function OneLine({ text, max = 54, min = 20 }) {
+  const wrapRef = useRef(null)
+  const textRef = useRef(null)
+  const [size, setSize] = useState(max)
 
-  useEffect(() => { if (active === "archive") setArchiveOpen(true) }, [active])
-
-  const item = (id, isSub = false): CSSProperties => ({
-    ...MONO,
-    fontSize: isSub ? "8px" : "9px",
-    color: active === id ? T.ink : T.faint,
-    background: "none",
-    border: "none",
-    borderRadius: 0,
-    padding: 0,
-    textAlign: "left",
-    cursor: "pointer",
-    transition: "color 0.2s",
-    display: "block",
-    width: "100%",
-  })
+  useEffect(() => {
+    const fit = () => {
+      const wrap = wrapRef.current
+      const el = textRef.current
+      if (!wrap || !el) return
+      let s = max
+      el.style.fontSize = `${s}px`
+      // Shrink until it fits, or we hit the floor.
+      while (el.scrollWidth > wrap.clientWidth && s > min) {
+        s -= 1
+        el.style.fontSize = `${s}px`
+      }
+      setSize(s)
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    if (wrapRef.current) ro.observe(wrapRef.current)
+    return () => ro.disconnect()
+  }, [text, max, min])
 
   return (
-    <nav style={{
-      position: "fixed", top: 0, left: 0, bottom: 0, width: "168px", zIndex: 60,
-      borderRight: T.hairline, background: T.paper,
-      display: "flex", flexDirection: "column", padding: "28px 22px",
-    }}>
-      {/* Mark */}
-      <div style={{ marginBottom: "44px" }}>
-        <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: T.ink, marginBottom: "14px" }} />
-        <div style={{ ...serifStyle(15) }}>
-          <MixedWord text="Archive" style={{}} />
-        </div>
-      </div>
+    <div ref={wrapRef} style={{ width: "100%", overflow: "hidden" }}>
+      <motion.div
+        key={text}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: [0.22, 0.61, 0.36, 1] }}
+      >
+        <span
+          ref={textRef}
+          style={{
+            fontFamily: "'Cormorant Garamond', Georgia, serif",
+            fontWeight: 300,
+            fontSize: `${size}px`,
+            lineHeight: 1.06,
+            letterSpacing: "-0.005em",
+            color: T.ink,
+            whiteSpace: "nowrap",
+            display: "inline-block",
+          }}
+        >
+          {text || "\u00a0"}
+        </span>
+      </motion.div>
+    </div>
+  )
+}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-        <button onClick={() => onChange("home")} style={item("home")}>Home</button>
-        <button onClick={() => onChange("cafe")} style={item("cafe")}>Cafe</button>
-        <button onClick={() => onChange("recipe")} style={item("recipe")}>Recipe</button>
+// ─── NAV DRAWER ───────────────────────────────────────────────────────────────
 
-        <div>
-          <button
-            onClick={() => { onChange("archive"); setArchiveOpen(p => !p) }}
-            style={{ ...item("archive"), display: "flex", alignItems: "center", justifyContent: "space-between" }}
-          >
-            Archive <span style={{ fontSize: "7px", opacity: 0.5 }}>{archiveOpen ? "–" : "+"}</span>
-          </button>
-          <AnimatePresence>
-            {archiveOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                style={{ overflow: "hidden" }}
-              >
-                <div style={{ paddingTop: "14px", paddingLeft: "12px", borderLeft: T.hairline, marginLeft: "1px", display: "flex", flexDirection: "column", gap: "12px" }}>
-                  {["Coffee", "Cafe", "Beans"].map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => { onChange("archive"); onArchiveTab(tab) }}
-                      style={{
-                        ...item("archive", true),
-                        color: active === "archive" && archiveTab === tab ? T.ink : T.faint,
-                      }}
-                    >{tab}</button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
+function NavDrawer({ open, setOpen, active, archiveTab, onChange, onArchiveTab }) {
+  useEffect(() => {
+    const h = e => e.key === "Escape" && setOpen(false)
+    window.addEventListener("keydown", h)
+    return () => window.removeEventListener("keydown", h)
+  }, [setOpen])
 
-      <div style={{ marginTop: "auto", ...MONO, fontSize: "7px", color: T.ghost, lineHeight: 1.8 }}>
-        Specialty<br />Coffee<br />Archive
-      </div>
-    </nav>
+  const go = (view, tab) => {
+    onChange(view)
+    if (tab) onArchiveTab(tab)
+    setOpen(false)
+  }
+
+  const line = (label, isActive, onClick, sub = false) => (
+    <button
+      key={label}
+      onClick={onClick}
+      style={{
+        ...serifStyle(sub ? 20 : 30, isActive ? T.ink : T.faint),
+        background: "none", border: "none", padding: "6px 0", cursor: "pointer",
+        textAlign: "left", display: "block", width: "100%",
+        paddingLeft: sub ? "22px" : 0, transition: "color 0.2s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.color = T.ink }}
+      onMouseLeave={e => { e.currentTarget.style.color = isActive ? T.ink : T.faint }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <>
+      {/* Trigger — a single dot, always present, nothing else */}
+      <button
+        onClick={() => setOpen(true)}
+        aria-label="Open menu"
+        style={{
+          position: "fixed", top: "26px", left: "28px", zIndex: 70,
+          width: "34px", height: "34px", borderRadius: "50%",
+          background: "none", border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+        }}
+      >
+        <motion.span
+          animate={{ scale: open ? 0.5 : 1 }}
+          transition={{ duration: 0.2 }}
+          style={{ width: "11px", height: "11px", borderRadius: "50%", background: T.ink, display: "block" }}
+        />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={() => setOpen(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(235,233,227,0.8)", backdropFilter: "blur(6px)" }}
+            />
+            <motion.nav
+              initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 380, damping: 40 }}
+              style={{
+                position: "fixed", top: 0, left: 0, bottom: 0, width: "280px", zIndex: 91,
+                background: T.paper, borderRight: T.hairline,
+                padding: "80px 32px 32px", display: "flex", flexDirection: "column",
+              }}
+            >
+              <div style={{ ...label(8), marginBottom: "26px" }}>Menu</div>
+
+              {line("Home", active === "home", () => go("home"))}
+              {line("Cafe", active === "cafe", () => go("cafe"))}
+              {line("Recipe", active === "recipe", () => go("recipe"))}
+              {line("Archive", active === "archive", () => go("archive", "Stats"))}
+
+              <div style={{ marginTop: "4px" }}>
+                {["Stats", "Coffee", "Cafe", "Beans"].map(tab =>
+                  line(tab, active === "archive" && archiveTab === tab, () => go("archive", tab), true)
+                )}
+              </div>
+
+              <div style={{ marginTop: "auto", ...MONO, fontSize: "7px", color: T.ghost, lineHeight: 1.9 }}>
+                Specialty<br />Coffee<br />Archive
+              </div>
+            </motion.nav>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   )
 }
 
@@ -1647,24 +2141,45 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
   const [editingBean, setEditingBean] = useState(null)
   const [greeting, setGreeting] = useState("")
   const [today, setToday] = useState("")
+  const [now, setNow] = useState("")
 
   // Set on mount so server and client don't disagree on the date.
   useEffect(() => {
-    const now = new Date()
-    setGreeting(greetingForToday(now))
-    setToday(now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }))
+    setGreeting(randomGreeting())
+
+    const stamp = () => {
+      const d = new Date()
+      setToday(d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }))
+      setNow(d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))
+    }
+    stamp()
+    // Tick on the minute rather than every second — nothing here needs seconds.
+    const id = setInterval(stamp, 30000)
+    return () => clearInterval(id)
   }, [])
 
   return (
     <>
-      <div style={{ paddingTop: "30px" }}>
-        {/* Date leads — set large, it's the only chrome on this screen */}
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: "26px", flexWrap: "wrap", gap: "12px" }}>
-          <div>
-            <div style={{ ...serifStyle(30), lineHeight: 1.1 }}>{today || "\u00a0"}</div>
-            <div style={{ ...serifStyle(15, T.sub), fontStyle: "italic", marginTop: "10px", maxWidth: "420px" }}>{greeting || "\u00a0"}</div>
+      <div style={{ paddingTop: "84px" }}>
+        <div style={{ marginBottom: "52px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "14px", marginBottom: "16px" }}>
+            <span style={label(9)}>{today || "\u00a0"}</span>
+            {now && (
+              <>
+                <span style={{ ...label(9, T.ghost) }}>—</span>
+                <span style={label(9)}>{now}</span>
+              </>
+            )}
           </div>
-          <span style={label(9)}>Now Brewing · {String(beans.length).padStart(2, "0")}</span>
+
+          {/* Auto-fitted so any line lands on exactly one row */}
+          <OneLine text={greeting} />
+        </div>
+
+        {/* Shelf marker */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "20px", paddingBottom: "14px", borderBottom: T.hairline }}>
+          <span style={label(8)}>Now Brewing</span>
+          <span style={{ ...MONO, fontSize: "8px", color: T.faint }}>{String(beans.length).padStart(2, "0")} on the shelf</span>
         </div>
 
         {/* Bean grid — everything visible at once */}
@@ -1680,9 +2195,9 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
             {/* Add card */}
             <button
               onClick={() => setShowAddBean(true)}
-              style={{ minHeight: beans.length === 0 ? "260px" : "auto", background: "transparent", border: "1px dashed rgba(20,18,15,0.22)", color: T.faint, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px", ...MONO, fontSize: "8px", transition: "border-color 0.2s, color 0.2s", padding: "40px 0" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(20,18,15,0.45)"; e.currentTarget.style.color = T.ink }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(20,18,15,0.22)"; e.currentTarget.style.color = T.faint }}
+              style={{ minHeight: beans.length === 0 ? "260px" : "auto", background: "transparent", border: "1px dashed rgba(13,12,10,0.3)", color: T.faint, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px", ...MONO, fontSize: "8px", transition: "border-color 0.2s, color 0.2s", padding: "40px 0" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(13,12,10,0.55)"; e.currentTarget.style.color = T.ink }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(13,12,10,0.3)"; e.currentTarget.style.color = T.faint }}
             >
               <span style={{ fontSize: "22px", lineHeight: 1, fontWeight: 300 }}>+</span>
               Add Bean
@@ -1728,7 +2243,8 @@ function HomeView({ beans, recipes, onAddBean, onArchive, onEditBean, onLogged, 
 
 export default function Page() {
   const [active, setActive] = useState("home")
-  const [archiveTab, setArchiveTab] = useState("Beans")
+  const [archiveTab, setArchiveTab] = useState("Stats")
+  const [navOpen, setNavOpen] = useState(false)
   const [activeBeans, setActiveBeans] = useState([])
   const [archivedBeans, setArchivedBeans] = useState([])
   const [recipes, setRecipes] = useState([])
@@ -1830,7 +2346,7 @@ export default function Page() {
   return (
     <div style={{ minHeight: "100vh", background: T.paper, color: T.ink }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: ${T.paper}; }
         select option { background: ${T.card}; color: ${T.ink}; }
@@ -1840,9 +2356,9 @@ export default function Page() {
         input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 0.7; }
       `}</style>
 
-      <SideNav active={active} archiveTab={archiveTab} onChange={setActive} onArchiveTab={setArchiveTab} />
+      <NavDrawer open={navOpen} setOpen={setNavOpen} active={active} archiveTab={archiveTab} onChange={setActive} onArchiveTab={setArchiveTab} />
 
-      <main style={{ marginLeft: "168px", padding: "0 36px 80px", maxWidth: "1320px" }}>
+      <main style={{ maxWidth: "1180px", margin: "0 auto", padding: "0 clamp(28px, 6vw, 88px) 100px" }}>
         {active === "home" && (
           <HomeView
             beans={activeBeans}
@@ -1860,6 +2376,7 @@ export default function Page() {
         {active === "recipe" && (
           <RecipeView recipes={recipes} beans={activeBeans} onSave={handleSaveRecipe} />
         )}
+        {active === "archive" && archiveTab === "Stats" && <StatsView beans={[...activeBeans, ...archivedBeans]} />}
         {active === "archive" && archiveTab === "Beans" && <BeanArchiveView beans={archivedBeans} />}
         {active === "archive" && archiveTab === "Coffee" && (
           <CoffeeArchiveView logs={brewLogs} loading={logsLoading} error={logsError} beans={[...activeBeans, ...archivedBeans]} />

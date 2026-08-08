@@ -2048,7 +2048,7 @@ function NavDrawer({ open, setOpen, active, archiveTab, onChange, onArchiveTab }
     return () => window.removeEventListener("keydown", h)
   }, [setOpen])
 
-  const go = (view, tab) => {
+  const go = (view, tab = null) => {
     onChange(view)
     if (tab) onArchiveTab(tab)
     setOpen(false)
